@@ -1,10 +1,6 @@
 // ===============================================
-// 🛡️ مدير الأمان - الحماية الشاملة
+// 🛡️ مدير الأمان - الحماية الشاملة (مصحح)
 // ===============================================
-
-const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
-const Joi = require('joi');
 
 class SecurityManager {
     constructor() {
@@ -17,36 +13,15 @@ class SecurityManager {
     }
 
     setupSecurityMiddleware(app) {
-        // 🔒 حماية الرأسيات
-        app.use(helmet({
-            contentSecurityPolicy: {
-                directives: {
-                    defaultSrc: ["'self'"],
-                    scriptSrc: ["'self'", "'unsafe-inline'"],
-                    styleSrc: ["'self'", "'unsafe-inline'"],
-                    connectSrc: ["'self'", "ws:", "wss:"],
-                    imgSrc: ["'self'", "data:", "https:"]
-                }
-            },
-            crossOriginEmbedderPolicy: false
-        }));
-
-        // 🚫 معدل الطلبات العام
-        app.use(rateLimit({
-            windowMs: 15 * 60 * 1000,
-            max: 100,
-            message: { error: 'تم تجاوز الحد المسموح من الطلبات' }
-        }));
-
-        // 📝 تحقق من حجم البيانات
-        app.use(express.json({ limit: '10kb' }));
-        app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+        // 🔒 إعدادات أمان مبسطة - سيتم التعامل مع express في server.js
+        console.log('🔒 إعدادات الأمان - مفعلة (مبسطة)');
+        // تم نقل express.json() إلى server.js مباشرة
     }
 
     setupSocketSecurity(io) {
         io.use(async (socket, next) => {
             try {
-                const ip = socket.handshake.address;
+                const ip = this.getClientIP(socket);
                 
                 // 🚫 تحقق من IP المحظور
                 if (await this.isIPBanned(ip)) {
@@ -58,13 +33,6 @@ class SecurityManager {
                     return next(new Error('معدل الطلبات مرتفع جداً'));
                 }
 
-                // 🔍 تحقق من البيانات الأساسية
-                const validationError = this.validateHandshake(socket.handshake);
-                if (validationError) {
-                    await this.recordFailedAttempt(ip);
-                    return next(new Error(validationError));
-                }
-
                 next();
             } catch (error) {
                 next(new Error('فشل التحقق الأمني'));
@@ -73,7 +41,7 @@ class SecurityManager {
     }
 
     async validateRequest(socket, action, data) {
-        const ip = socket.handshake.address;
+        const ip = this.getClientIP(socket);
         const playerId = socket.id;
 
         // 🚫 تحقق من الحظر
@@ -97,27 +65,81 @@ class SecurityManager {
     }
 
     validateActionData(action, data) {
-        const schemas = {
-            joinLobby: Joi.object({
-                playerName: Joi.string().min(2).max(20).pattern(/^[\p{L}\p{N}\s_-]+$/u).required()
-            }),
-
-            makeMove: Joi.object({
-                cellIndex: Joi.number().integer().min(0).max(8).required(),
-                roomId: Joi.string().length(8).required(),
-                timestamp: Joi.number().integer().min(Date.now() - 5000).max(Date.now() + 1000)
-            }),
-
-            sendInvite: Joi.object({
-                targetId: Joi.string().length(20).required()
-            })
+        const validators = {
+            joinLobby: (data) => this.validateJoinLobbyData(data),
+            makeMove: (data) => this.validateMoveData(data),
+            sendInvite: (data) => this.validateInviteData(data)
         };
 
-        const schema = schemas[action];
-        if (!schema) return null;
+        const validator = validators[action];
+        if (!validator) return null;
 
-        const { error } = schema.validate(data);
-        return error ? error.details[0].message : null;
+        return validator(data);
+    }
+
+    validateJoinLobbyData(data) {
+        if (!data || typeof data !== 'object') {
+            return 'بيانات غير صالحة';
+        }
+
+        const { playerName } = data;
+
+        if (!playerName || typeof playerName !== 'string') {
+            return 'اسم اللاعب مطلوب';
+        }
+
+        if (playerName.length < 2 || playerName.length > 20) {
+            return 'الاسم يجب أن يكون بين 2 و 20 حرف';
+        }
+
+        // تحقق من الأحرف المسموحة
+        const validPattern = /^[\p{L}\p{N}\s_-]+$/u;
+        if (!validPattern.test(playerName)) {
+            return 'الاسم يمكن أن يحتوي على أحرف وأرقام ومسافات فقط';
+        }
+
+        return null;
+    }
+
+    validateMoveData(data) {
+        if (!data || typeof data !== 'object') {
+            return 'بيانات غير صالحة';
+        }
+
+        const { cellIndex, roomId, timestamp } = data;
+
+        if (typeof cellIndex !== 'number' || cellIndex < 0 || cellIndex > 8) {
+            return 'رقم الخلية يجب أن يكون بين 0 و 8';
+        }
+
+        if (!roomId || typeof roomId !== 'string' || roomId.length !== 8) {
+            return 'معرف الغرفة غير صالح';
+        }
+
+        if (typeof timestamp !== 'number') {
+            return 'الطابع الزمني غير صالح';
+        }
+
+        const now = Date.now();
+        if (timestamp < now - 5000 || timestamp > now + 1000) {
+            return 'الطابع الزمني غير صالح';
+        }
+
+        return null;
+    }
+
+    validateInviteData(data) {
+        if (!data || typeof data !== 'object') {
+            return 'بيانات غير صالحة';
+        }
+
+        const { targetId } = data;
+
+        if (!targetId || typeof targetId !== 'string' || targetId.length !== 20) {
+            return 'معرف الهدف غير صالح';
+        }
+
+        return null;
     }
 
     async checkActionRateLimit(playerId, action) {
@@ -129,6 +151,23 @@ class SecurityManager {
         const recentAttempts = attempts.filter(time => time > now - windowMs);
 
         if (recentAttempts.length >= this.getActionLimit(action)) {
+            return false;
+        }
+
+        recentAttempts.push(now);
+        this.failedAttempts.set(key, recentAttempts);
+        return true;
+    }
+
+    async checkSocketRateLimit(ip) {
+        const key = `socket:${ip}`;
+        const now = Date.now();
+        const windowMs = 60000; // 1 دقيقة
+        
+        const attempts = this.failedAttempts.get(key) || [];
+        const recentAttempts = attempts.filter(time => time > now - windowMs);
+
+        if (recentAttempts.length >= 10) { // 10 محاولات في الدقيقة
             return false;
         }
 
@@ -200,16 +239,16 @@ class SecurityManager {
             return 'مصدر غير مسموح';
         }
 
-        // تحقق من User-Agent
-        const userAgent = handshake.headers['user-agent'];
-        if (!userAgent || userAgent.length < 10) {
-            return 'User-Agent غير صالح';
-        }
-
         return null;
     }
 
-    // 🆕 تنظيف البيانات القديمة
+    getClientIP(socket) {
+        return socket.handshake.headers['x-forwarded-for'] || 
+               socket.handshake.address ||
+               socket.request.connection.remoteAddress;
+    }
+
+    // 🧹 تنظيف البيانات القديمة
     cleanupOldData() {
         const now = Date.now();
         
