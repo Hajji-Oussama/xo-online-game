@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XO المحترف - لعبة إكس أو أونلاين</title>
+    <meta name="description" content="لعبة XO أونلاين متعددة اللاعبين - تحدى أصدقاءك في لعبة الذكاء الشهيرة">
+    <meta name="keywords" content="xo, لعبة, أونلاين, متعددة اللاعبين, عربية, إكس أو">
+    <meta name="author" content="XO Game">
+    
+    <!-- Open Graph -->
+    <meta property="og:title" content="XO المحترف - لعبة إكس أو أونلاين">
+    <meta property="og:description" content="لعبة XO أونلاين متعددة اللاعبين - تحدى أصدقاءك في لعبة الذكاء الشهيرة">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://your-domain.com">
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/x-icon" href="/assets/favicon.ico">
+    
+    <!-- Preload -->
+    <link rel="preload" href="style.css" as="style">
+    <link rel="preload" href="client.js" as="script">
+    
+    <!-- Socket.IO -->
+    <script src="/socket.io/socket.io.js"></script>
+    
+    <!-- Styles -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div id="loading-screen" class="screen active">
+        <div class="loading-container">
+            <div class="loading-spinner"></div>
+            <h2>جاري التحميل...</h2>
+            <p>يتم تهيئة اللعبة، الرجاء الانتظار</p>
+        </div>
+    </div>
+
+    <!-- Main Container -->
+    <div class="container" style="display: none;">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1 class="logo">
+                    <span class="logo-icon">🎮</span>
+                    XO المحترف
+                </h1>
+                <div class="server-stats">
+                    <span id="online-count">👥 0</span>
+                    <span id="rooms-count">🚪 0</span>
+                    <span id="games-count">🎯 0</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Navigation -->
+        <nav class="nav-tabs">
+            <button class="nav-tab active" data-tab="play">اللعب</button>
+            <button class="nav-tab" data-tab="leaderboard"> المتصدرين</button>
+            <button class="nav-tab" data-tab="how-to-play">كيفية اللعب</button>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Play Tab -->
+            <div id="play-tab" class="tab-content active">
+                <!-- Login Screen -->
+                <div id="login-screen" class="screen active">
+                    <div class="login-container">
+                        <div class="welcome-card">
+                            <div class="welcome-icon">🎯</div>
+                            <h2>مرحباً في XO المحترف!</h2>
+                            <p class="welcome-text">ادخل اسمك للانضمام إلى اللاعبين حول العالم</p>
+                        </div>
+                        
+                        <div class="input-group">
+                            <input 
+                                type="text" 
+                                id="player-name-input" 
+                                placeholder="اسمك (2-20 حرف)" 
+                                maxlength="20" 
+                                autocomplete="off"
+                                class="name-input"
+                            >
+                            <div class="input-hint">يمكن استخدام الأحرف العربية والإنجليزية</div>
+                        </div>
+                        
+                        <button id="join-button" class="btn btn-primary btn-large">
+                            <span class="btn-icon">🚀</span>
+                            الدخول إلى الردهة
+                        </button>
+
+                        <div class="quick-stats">
+                            <div class="stat-item">
+                                <span class="stat-icon">👥</span>
+                                <span class="stat-value" id="quick-online">0</span>
+                                <span class="stat-label">لاعب متصل</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-icon">🎯</span>
+                                <span class="stat-value" id="quick-games">0</span>
+                                <span class="stat-label">لعبة نشطة</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Lobby Screen -->
+                <div id="lobby-screen" class="screen">
+                    <div class="lobby-header">
+                        <div class="player-card">
+                            <div class="player-avatar">😎</div>
+                            <div class="player-info">
+                                <h3 id="my-name-display">اللاعب</h3>
+                                <span class="player-status available">🟢 متصل</span>
+                            </div>
+                        </div>
+                        
+                        <div class="lobby-actions">
+                            <button id="refresh-lobby" class="btn btn-secondary btn-small">
+                                <span class="btn-icon">🔄</span>
+                                تحديث
+                            </button>
+                            <button id="how-to-play-btn" class="btn btn-secondary btn-small">
+                                <span class="btn-icon">❓</span>
+                                المساعدة
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <h3 class="section-title">
+                            <span class="section-icon">👥</span>
+                            اللاعبون المتصلون
+                            <span class="badge" id="players-count">0</span>
+                        </h3>
+                        
+                        <div class="players-container">
+                            <div id="lobby-list" class="players-list">
+                                <div class="empty-state">
+                                    <div class="empty-icon">👀</div>
+                                    <p>لا يوجد لاعبون آخرون متصلون</p>
+                                    <small>افتح نافذة أخرى أو دع صديقاً للانضمام!</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="quick-actions">
+                        <button id="create-bot-game" class="btn btn-outline" disabled>
+                            <span class="btn-icon">🤖</span>
+                            لعب ضد الكمبيوتر
+                            <span class="badge coming-soon">قريباً</span>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Game Screen -->
+                <div id="game-screen" class="screen">
+                    <div class="game-header">
+                        <div class="game-info">
+                            <div class="room-info">
+                                <span class="info-icon">🚪</span>
+                                <span id="room-id-display">الغرفة: #1</span>
+                            </div>
+                            <div class="moves-counter">
+                                <span class="info-icon">🎯</span>
+                                <span id="moves-count">0 حركات</span>
+                            </div>
+                        </div>
+
+                        <div class="players-display">
+                            <div id="player-x-display" class="player-display">
+                                <div class="player-badge x-badge">
+                                    <span class="symbol">❌</span>
+                                    <span class="player-name" id="player-x-name">X</span>
+                                    <div class="player-status-indicator"></div>
+                                </div>
+                            </div>
+                            
+                            <div class="vs-separator">VS</div>
+                            
+                            <div id="player-o-display" class="player-display">
+                                <div class="player-badge o-badge">
+                                    <span class="symbol">⭕</span>
+                                    <span class="player-name" id="player-o-name">O</span>
+                                    <div class="player-status-indicator"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="status-message" class="status-message">
+                        <div class="message-content">
+                            <span class="message-icon">🎮</span>
+                            <span class="message-text">جاري تهيئة اللعبة...</span>
+                        </div>
+                    </div>
+
+                    <div class="game-board-container">
+                        <div id="game-board" class="game-board">
+                            <!-- Cells will be generated by JavaScript -->
+                        </div>
+                    </div>
+
+                    <div class="game-controls">
+                        <button id="restart-button" class="btn btn-secondary" disabled>
+                            <span class="btn-icon">🔄</span>
+                            إعادة التشغيل
+                        </button>
+                        <button id="ready-button" class="btn btn-success">
+                            <span class="btn-icon">✅</span>
+                            جاهز
+                        </button>
+                        <button id="leave-room-button" class="btn btn-danger">
+                            <span class="btn-icon">🚪</span>
+                            مغادرة
+                        </button>
+                    </div>
+
+                    <div class="game-stats">
+                        <div class="stat-card">
+                            <div class="stat-value" id="timer">00:00</div>
+                            <div class="stat-label">الوقت</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="moves">0</div>
+                            <div class="stat-label">الحركات</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Leaderboard Tab -->
+            <div id="leaderboard-tab" class="tab-content">
+                <div class="leaderboard-container">
+                    <div class="leaderboard-header">
+                        <h2>
+                            <span class="section-icon">🏆</span>
+                            لوحة المتصدرين
+                        </h2>
+                        <button id="refresh-leaderboard" class="btn btn-secondary btn-small">
+                            <span class="btn-icon">🔄</span>
+                            تحديث
+                        </button>
+                    </div>
+
+                    <div id="leaderboard-list" class="leaderboard-list">
+                        <div class="loading-leaderboard">
+                            <div class="loading-spinner small"></div>
+                            <p>جاري تحميل بيانات المتصدرين...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- How to Play Tab -->
+            <div id="how-to-play-tab" class="tab-content">
+                <div class="how-to-play-container">
+                    <h2>
+                        <span class="section-icon">❓</span>
+                        كيفية اللعب
+                    </h2>
+                    
+                    <div class="instructions">
+                        <div class="instruction-card">
+                            <div class="instruction-icon">🎯</div>
+                            <h3>الهدف من اللعبة</h3>
+                            <p>قم بتشكيل خط من 3 رموز متشابهة (أفقياً، عمودياً، أو قطرياً) قبل خصمك.</p>
+                        </div>
+
+                        <div class="instruction-card">
+                            <div class="instruction-icon">👥</div>
+                            <h3>طريقة اللعب</h3>
+                            <ol>
+                                <li>ادخل اسمك واضغط "الدخول إلى الردهة"</li>
+                                <li>اختر لاعباً متاحاً واضغط "دعوة"</li>
+                                <li>انتظر قبول الدعوة من الخصم</li>
+                                <li>ابدأ اللعب عندما يحين دورك</li>
+                            </ol>
+                        </div>
+
+                        <div class="instruction-card">
+                            <div class="instruction-icon">⚡</div>
+                            <h3>مميزات اللعبة</h3>
+                            <ul>
+                                <li>🎮 لعبة متعددة اللاعبين فورية</li>
+                                <li>🌐 لعب أونلاين مع أي شخص حول العالم</li>
+                                <li>🏆 نظام تصنيف والمتصدرين</li>
+                                <li>📱 تصميم متجاوب يعمل على جميع الأجهزة</li>
+                                <li>🔔 إشعارات فورية أثناء اللعب</li>
+                            </ul>
+                        </div>
+
+                        <div class="instruction-card">
+                            <div class="instruction-icon">🎪</div>
+                            <h3>قواعد اللعبة</h3>
+                            <ul>
+                                <li>اللاعب X يبدأ دائماً</li>
+                                <li>يمكنك الحركة مرة واحدة في كل دور</li>
+                                <li>الفوز بتشكيل خط من 3 رموز متشابهة</li>
+                                <li>التعادل عندما تمتلئ جميع الخلايا</li>
+                                <li>يمكن إعادة اللعب بعد انتهاء الجولة</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <div class="footer-content">
+                <div class="footer-info">
+                    <p>XO المحترف &copy; 2024 - لعبة ذكاء متعددة اللاعبين</p>
+                    <div class="footer-links">
+                        <span id="connection-status" class="status-connected">
+                            <span class="status-dot"></span>
+                            متصل
+                        </span>
+                        <span class="version">v2.0.0</span>
+                    </div>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Invitation Modal -->
+    <div id="invite-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>
+                    <span class="modal-icon">🎯</span>
+                    دعوة للعب
+                </h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p id="invite-message">لديك دعوة من لاعب</p>
+                <div class="inviter-info">
+                    <span class="inviter-avatar">😎</span>
+                    <span id="inviter-name">اللاعب</span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="decline-invite" class="btn btn-danger">
+                    <span class="btn-icon">❌</span>
+                    رفض
+                </button>
+                <button id="accept-invite" class="btn btn-success">
+                    <span class="btn-icon">✅</span>
+                    قبول
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Container -->
+    <div id="notification-container" class="notification-container"></div>
+
+    <!-- Sounds -->
+    <audio id="move-sound" preload="auto">
+        <source src="/assets/sounds/move.mp3" type="audio/mpeg">
+    </audio>
+    <audio id="win-sound" preload="auto">
+        <source src="/assets/sounds/win.mp3" type="audio/mpeg">
+    </audio>
+    <audio id="draw-sound" preload="auto">
+        <source src="/assets/sounds/draw.mp3" type="audio/mpeg">
+    </audio>
+    <audio id="notification-sound" preload="auto">
+        <source src="/assets/sounds/notification.mp3" type="audio/mpeg">
+    </audio>
+
+    <!-- JavaScript -->
+    <script src="client.js"></script>
+</body>
+</html>
