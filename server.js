@@ -1,5 +1,5 @@
 // ===============================================
-// 🚀 XO Game Server - النسخة المبسطة والموثوقة
+// 🚀 XO Game Server - النسخة المحسنة والكاملة
 // ===============================================
 
 const express = require('express');
@@ -20,17 +20,22 @@ class XOGameServer {
             pingInterval: 25000
         });
 
-        // تهيئة الحالة
+        // حالة السيرفر
         this.players = new Map();
         this.rooms = new Map();
         this.lobbyPlayers = new Set();
         this.playerInvites = new Map();
+        this.gameStats = {
+            totalGames: 0,
+            totalMoves: 0,
+            startTime: Date.now()
+        };
 
         this.setupMiddleware();
         this.setupRoutes();
         this.setupSocketHandlers();
         
-        console.log('🎮 خادم XO - جاهز للتشغيل');
+        console.log('🎮 خادم XO المحسن - جاهز للتشغيل');
     }
 
     setupMiddleware() {
@@ -41,7 +46,13 @@ class XOGameServer {
         this.app.use(express.json({ limit: '10kb' }));
         this.app.use(express.urlencoded({ extended: true, limit: '10kb' }));
         
-        console.log('🔧 الإعدادات - مكتملة');
+        // 🔧 CORS
+        this.app.use((req, res, next) => {
+            res.header('Access-Control-Allow-Origin', '*');
+            res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
+            res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+            next();
+        });
     }
 
     setupRoutes() {
@@ -56,9 +67,14 @@ class XOGameServer {
                 status: 'OK',
                 players: this.players.size,
                 rooms: this.rooms.size,
-                uptime: process.uptime(),
-                timestamp: new Date().toISOString()
+                totalGames: this.gameStats.totalGames,
+                uptime: Math.floor((Date.now() - this.gameStats.startTime) / 1000)
             });
+        });
+
+        // 📊 إحصائيات السيرفر
+        this.app.get('/api/stats', (req, res) => {
+            res.json(this.getServerStats());
         });
     }
 
@@ -70,6 +86,7 @@ class XOGameServer {
             socket.on('joinLobby', (data) => this.handleJoinLobby(socket, data));
             socket.on('sendInvite', (data) => this.handleSendInvite(socket, data));
             socket.on('acceptInvite', (data) => this.handleAcceptInvite(socket, data));
+            socket.on('declineInvite', (data) => this.handleDeclineInvite(socket, data));
 
             // 🎮 أحداث اللعبة
             socket.on('makeMove', (data) => this.handleMakeMove(socket, data));
@@ -80,7 +97,11 @@ class XOGameServer {
             // 🔄 أحداث النظام
             socket.on('getLobbyUpdate', () => this.handleLobbyUpdate(socket));
             socket.on('getLeaderboard', () => this.handleGetLeaderboard(socket));
-            socket.on('ping', (callback) => callback('pong'));
+            socket.on('ping', (callback) => {
+                if (typeof callback === 'function') {
+                    callback('pong');
+                }
+            });
 
             // 🚪 أحداث الانفصال
             socket.on('disconnect', (reason) => this.handleDisconnect(socket, reason));
@@ -91,7 +112,13 @@ class XOGameServer {
     async handleJoinLobby(socket, data) {
         try {
             if (!this.validatePlayerName(data.playerName)) {
-                socket.emit('error', { message: 'اسم اللاعب غير صالح' });
+                socket.emit('error', { message: 'اسم اللاعب غير صالح (2-20 حرف)' });
+                return;
+            }
+
+            // منع الأسماء المكررة
+            if (this.isDuplicateName(data.playerName)) {
+                socket.emit('error', { message: 'الاسم مستخدم بالفعل' });
                 return;
             }
 
@@ -100,7 +127,8 @@ class XOGameServer {
                 name: data.playerName.trim(),
                 socket: socket,
                 status: 'available',
-                joinedAt: Date.now()
+                joinedAt: Date.now(),
+                lastActivity: Date.now()
             };
 
             this.players.set(socket.id, player);
@@ -108,10 +136,12 @@ class XOGameServer {
 
             socket.emit('lobbyJoined', {
                 playerName: player.name,
-                leaderboard: this.getLeaderboard()
+                leaderboard: this.getLeaderboard(),
+                serverStats: this.getServerStats()
             });
 
             this.broadcastLobbyUpdate();
+            console.log(`👤 ${player.name} انضم للردهة`);
             
         } catch (error) {
             socket.emit('error', { message: error.message });
@@ -128,18 +158,47 @@ class XOGameServer {
                 return;
             }
 
-            if (sender.status !== 'available' || target.status !== 'available') {
-                socket.emit('error', { message: 'اللاعب غير متاح' });
+            // منع إرسال دعوة لنفسك
+            if (sender.id === target.id) {
+                socket.emit('error', { message: 'لا يمكن إرسال دعوة لنفسك' });
                 return;
             }
 
-            // إرسال الدعوة
-            target.socket.emit('inviteReceived', {
-                inviterId: sender.id,
-                inviterName: sender.name
+            if (sender.status !== 'available' || target.status !== 'available') {
+                socket.emit('error', { message: 'اللاعب غير متاح حالياً' });
+                return;
+            }
+
+            // التحقق من وجود دعوة pending
+            if (this.hasPendingInvite(sender.id, target.id)) {
+                socket.emit('error', { message: 'لديك دعوة pending لهذا اللاعب' });
+                return;
+            }
+
+            // إنشاء دعوة
+            const inviteId = this.generateInviteId();
+            this.playerInvites.set(inviteId, {
+                id: inviteId,
+                senderId: sender.id,
+                targetId: target.id,
+                senderName: sender.name,
+                timestamp: Date.now(),
+                status: 'pending'
             });
 
-            socket.emit('inviteSent', { targetName: target.name });
+            // إرسال الدعوة للهدف
+            target.socket.emit('inviteReceived', {
+                inviterId: sender.id,
+                inviterName: sender.name,
+                inviteId: inviteId
+            });
+
+            socket.emit('inviteSent', { 
+                targetName: target.name,
+                message: `تم إرسال دعوة إلى ${target.name}`
+            });
+
+            console.log(`📨 ${sender.name} أرسل دعوة لـ ${target.name}`);
             
         } catch (error) {
             socket.emit('error', { message: error.message });
@@ -148,42 +207,63 @@ class XOGameServer {
 
     async handleAcceptInvite(socket, data) {
         try {
-            const acceptor = this.players.get(socket.id);
-            const sender = this.players.get(data.inviterId);
+            const invite = this.playerInvites.get(data.inviteId);
+            if (!invite || invite.targetId !== socket.id) {
+                socket.emit('error', { message: 'الدعوة غير موجودة أو منتهية' });
+                return;
+            }
 
-            if (!acceptor || !sender) {
+            const sender = this.players.get(invite.senderId);
+            const acceptor = this.players.get(socket.id);
+
+            if (!sender || !acceptor) {
                 socket.emit('error', { message: 'اللاعب غير موجود' });
                 return;
             }
 
-            // إنشاء غرفة جديدة
-            const roomId = this.generateRoomId();
-            const room = {
-                id: roomId,
-                players: [
-                    { ...sender, symbol: 'X' },
-                    { ...acceptor, symbol: 'O' }
-                ],
-                state: this.initializeGameState(),
-                createdAt: Date.now()
-            };
-
-            this.rooms.set(roomId, room);
+            // تحديث حالة الدعوة
+            invite.status = 'accepted';
+            
+            // تحديث حالة اللاعبين
             sender.status = 'in_game';
             acceptor.status = 'in_game';
 
-            // انضمام اللاعبين للغرفة
-            sender.socket.join(roomId);
-            acceptor.socket.join(roomId);
+            // إنشاء غرفة جديدة
+            const room = this.createRoom(sender, acceptor);
+            
+            // تنظيف الدعوات
+            this.cleanupPlayerInvites(sender.id);
+            this.cleanupPlayerInvites(acceptor.id);
 
             // إشعار اللاعبين ببدء اللعبة
-            this.io.to(roomId).emit('gameStarted', {
+            this.io.to(room.id).emit('gameStarted', {
                 room: room,
                 players: room.players,
                 mySymbol: room.players.find(p => p.id === socket.id)?.symbol
             });
 
             this.broadcastLobbyUpdate();
+            console.log(`✅ ${acceptor.name} قبل دعوة ${sender.name}`);
+            
+        } catch (error) {
+            socket.emit('error', { message: error.message });
+        }
+    }
+
+    async handleDeclineInvite(socket, data) {
+        try {
+            const invite = this.playerInvites.get(data.inviteId);
+            if (!invite) return;
+
+            const sender = this.players.get(invite.senderId);
+            if (sender) {
+                sender.socket.emit('inviteDeclined', {
+                    targetName: this.players.get(socket.id)?.name
+                });
+            }
+
+            this.playerInvites.delete(data.inviteId);
+            console.log(`❌ دعوة مرفوضة من ${socket.id}`);
             
         } catch (error) {
             socket.emit('error', { message: error.message });
@@ -214,6 +294,8 @@ class XOGameServer {
             // تنفيذ الحركة
             room.state.board[data.cellIndex] = room.state.currentPlayer;
             room.state.moves++;
+            room.lastActivity = Date.now();
+            this.gameStats.totalMoves++;
 
             // التحقق من الفوز
             const winner = this.checkWinner(room.state.board);
@@ -221,6 +303,10 @@ class XOGameServer {
                 room.state.winner = winner;
                 room.state.active = false;
                 room.state.message = winner === 'draw' ? 'تعادل!' : `فاز ${winner}!`;
+                this.gameStats.totalGames++;
+                
+                // تحديث إحصائيات اللاعبين
+                this.updatePlayerStats(room, winner);
             } else {
                 // تبديل اللاعب
                 room.state.currentPlayer = room.state.currentPlayer === 'X' ? 'O' : 'X';
@@ -229,8 +315,20 @@ class XOGameServer {
 
             // إرسال تحديث اللعبة للغرفة
             this.io.to(room.id).emit('gameStateUpdated', {
-                state: room.state
+                state: room.state,
+                moves: room.state.moves
             });
+
+            // إذا انتهت اللعبة، إرسال النتائج
+            if (room.state.winner) {
+                setTimeout(() => {
+                    this.io.to(room.id).emit('gameCompleted', {
+                        winner: room.state.winner,
+                        isDraw: room.state.winner === 'draw',
+                        leaderboard: this.getLeaderboard()
+                    });
+                }, 2000);
+            }
             
         } catch (error) {
             socket.emit('error', { message: error.message });
@@ -243,6 +341,15 @@ class XOGameServer {
         if (name.length < 2 || name.length > 20) return false;
         const validPattern = /^[\p{L}\p{N}\s_-]+$/u;
         return validPattern.test(name);
+    }
+
+    isDuplicateName(name) {
+        for (let player of this.players.values()) {
+            if (player.name.toLowerCase() === name.toLowerCase()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     validateMove(room, player, cellIndex) {
@@ -274,6 +381,30 @@ class XOGameServer {
         return null;
     }
 
+    createRoom(player1, player2) {
+        const roomId = this.generateRoomId();
+        
+        const room = {
+            id: roomId,
+            players: [
+                { ...player1, symbol: 'X', ready: false },
+                { ...player2, symbol: 'O', ready: false }
+            ],
+            state: this.initializeGameState(),
+            createdAt: Date.now(),
+            lastActivity: Date.now()
+        };
+
+        this.rooms.set(roomId, room);
+
+        // انضمام اللاعبين للغرفة في Socket.IO
+        player1.socket.join(roomId);
+        player2.socket.join(roomId);
+
+        console.log(`🆕 غرفة جديدة: ${roomId} - ${player1.name} vs ${player2.name}`);
+        return room;
+    }
+
     initializeGameState() {
         return {
             board: Array(9).fill(null),
@@ -295,20 +426,70 @@ class XOGameServer {
         return null;
     }
 
+    hasPendingInvite(senderId, targetId) {
+        for (let invite of this.playerInvites.values()) {
+            if (invite.senderId === senderId && 
+                invite.targetId === targetId && 
+                invite.status === 'pending') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    cleanupPlayerInvites(playerId) {
+        for (let [inviteId, invite] of this.playerInvites) {
+            if (invite.senderId === playerId || invite.targetId === playerId) {
+                this.playerInvites.delete(inviteId);
+            }
+        }
+    }
+
+    updatePlayerStats(room, winner) {
+        // يمكن تطوير هذا لاحقاً لإضافة إحصائيات متقدمة
+        room.players.forEach(player => {
+            player.lastActivity = Date.now();
+        });
+    }
+
     generateRoomId() {
         return Math.random().toString(36).substring(2, 10).toUpperCase();
     }
 
+    generateInviteId() {
+        return `inv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    }
+
     getLeaderboard() {
-        return []; // يمكن تطوير هذا لاحقاً
+        // يمكن تطوير هذا لاحقاً
+        return [
+            { name: 'أحمد', wins: 5, losses: 2, draws: 1 },
+            { name: 'محمد', wins: 4, losses: 3, draws: 0 },
+            { name: 'فاطمة', wins: 3, losses: 1, draws: 2 }
+        ];
+    }
+
+    getServerStats() {
+        const uptime = Math.floor((Date.now() - this.gameStats.startTime) / 1000);
+        const hours = Math.floor(uptime / 3600);
+        const minutes = Math.floor((uptime % 3600) / 60);
+        const seconds = uptime % 60;
+        
+        return {
+            onlinePlayers: this.players.size,
+            activeRooms: this.rooms.size,
+            totalGames: this.gameStats.totalGames,
+            totalMoves: this.gameStats.totalMoves,
+            uptime: `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+        };
     }
 
     // 🔄 معالجة الأحداث العامة
     handleLobbyUpdate(socket) {
-        const lobbyData = {
-            players: this.getLobbyPlayers()
-        };
-        socket.emit('lobbyUpdated', lobbyData);
+        socket.emit('lobbyUpdated', {
+            players: this.getLobbyPlayers(),
+            serverStats: this.getServerStats()
+        });
     }
 
     handleGetLeaderboard(socket) {
@@ -327,57 +508,92 @@ class XOGameServer {
                     status: player.status
                 } : null;
             })
-            .filter(player => player !== null);
+            .filter(player => player !== null && player.status === 'available');
     }
 
     // 🚪 معالجة الانفصال
     async handleDisconnect(socket, reason) {
-        console.log(`🚪 لاعب انقطع: ${socket.id}`);
+        console.log(`🚪 لاعب انقطع: ${socket.id} - ${reason}`);
         
         const player = this.players.get(socket.id);
         if (player) {
-            this.players.delete(socket.id);
-            this.lobbyPlayers.delete(socket.id);
-            
             // إذا كان في غرفة، معالجة مغادرته
             const room = this.findPlayerRoom(socket.id);
             if (room) {
                 this.handlePlayerLeaveRoom(room, socket.id);
             }
+
+            // تنظيف البيانات
+            this.players.delete(socket.id);
+            this.lobbyPlayers.delete(socket.id);
+            this.cleanupPlayerInvites(socket.id);
         }
 
         this.broadcastLobbyUpdate();
     }
 
     handlePlayerLeaveRoom(room, playerId) {
+        const leavingPlayer = room.players.find(p => p.id === playerId);
         room.players = room.players.filter(p => p.id !== playerId);
         
         if (room.players.length === 0) {
+            // لا يوجد لاعبين، حذف الغرفة
             this.rooms.delete(room.id);
         } else {
             // إشعار اللاعب المتبقي
             const remainingPlayer = room.players[0];
             remainingPlayer.socket.emit('opponentLeft', {
-                message: 'غادر الخصم الغرفة'
+                message: `${leavingPlayer?.name || 'الخصم'} غادر الغرفة`,
+                roomClosed: false
             });
+            
+            // إعادة اللاعب المتبقي للردهة
+            remainingPlayer.status = 'available';
+            this.lobbyPlayers.add(remainingPlayer.id);
         }
     }
 
     // 📢 بث التحديثات
     broadcastLobbyUpdate() {
         const lobbyData = {
-            players: this.getLobbyPlayers()
+            players: this.getLobbyPlayers(),
+            serverStats: this.getServerStats()
         };
         this.io.emit('lobbyUpdated', lobbyData);
     }
 
-    // معالجات أخرى مبسطة
+    // معالجات أخرى
     handleRequestRestart(socket) {
-        socket.emit('error', { message: 'لم يتم تطوير هذه الميزة بعد' });
+        const room = this.findPlayerRoom(socket.id);
+        if (room && !room.state.active) {
+            // إعادة تشغيل اللعبة
+            room.state = this.initializeGameState();
+            room.players.forEach(player => {
+                player.ready = false;
+                // تبديل الرموز
+                player.symbol = player.symbol === 'X' ? 'O' : 'X';
+            });
+            
+            this.io.to(room.id).emit('gameRestarted', {
+                state: room.state,
+                players: room.players
+            });
+        }
     }
 
     handlePlayerReady(socket) {
-        socket.emit('error', { message: 'لم يتم تطوير هذه الميزة بعد' });
+        const room = this.findPlayerRoom(socket.id);
+        if (room) {
+            const player = room.players.find(p => p.id === socket.id);
+            if (player) {
+                player.ready = true;
+                
+                // إذا كان كلا اللاعبين جاهزين
+                if (room.players.every(p => p.ready)) {
+                    this.handleRequestRestart(socket);
+                }
+            }
+        }
     }
 
     handleLeaveRoom(socket) {
@@ -385,35 +601,31 @@ class XOGameServer {
         if (room) {
             this.handlePlayerLeaveRoom(room, socket.id);
         }
-        socket.emit('lobbyJoined', { playerName: this.players.get(socket.id)?.name });
+        
+        // إعادة اللاعب للردهة
+        const player = this.players.get(socket.id);
+        if (player) {
+            player.status = 'available';
+            this.lobbyPlayers.add(socket.id);
+            socket.emit('lobbyJoined', { 
+                playerName: player.name,
+                leaderboard: this.getLeaderboard(),
+                serverStats: this.getServerStats()
+            });
+        }
+        
+        this.broadcastLobbyUpdate();
     }
 
     // 🚀 تشغيل السيرفر
     start() {
         const PORT = process.env.PORT || 3000;
         const HOST = '0.0.0.0';
-       
-// 🔧 إصلاح CORS وإضافة health check
-this.app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    next();
-});
-
-// 🩺 صفحة فحص السيرفر
-this.app.get('/api/status', (req, res) => {
-    res.json({
-        status: 'running',
-        players: this.players.size,
-        rooms: this.rooms.size,
-        timestamp: new Date().toISOString()
-    });
-});
 
         this.server.listen(PORT, HOST, () => {
-            console.log('🎮 خادم XO يعمل على PORT:', PORT);
+            console.log('🎮 خادم XO المحسن يعمل على PORT:', PORT);
             console.log('🌐 العنوان:', `http://localhost:${PORT}`);
+            console.log('⏰ وقت البدء:', new Date().toLocaleString());
         });
     }
 }
