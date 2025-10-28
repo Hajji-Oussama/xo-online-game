@@ -1,13 +1,28 @@
 {
   "name": "xo-online-game",
-  "version": "1.0.0",
+  "version": "2.0.0",
+  "description": "لعبة XO أونلاين متعددة اللاعبين - تصميم حديث ومتجاوب",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "production": "NODE_ENV=production node server.js"
   },
   "dependencies": {
     "express": "^4.18.2",
     "socket.io": "^4.7.2"
+  },
+  "keywords": [
+    "game",
+    "multiplayer",
+    "xo",
+    "tic-tac-toe",
+    "realtime",
+    "socket.io"
+  ],
+  "author": "XO Game Team",
+  "license": "MIT",
+  "engines": {
+    "node": ">=16.0.0"
   }
 }

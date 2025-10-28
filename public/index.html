@@ -3,114 +3,122 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🎮 XO المحترف - لعبة إكس أو أونلاين</title>
+    <title>🎮 XO Game - لعبة إكس أو أونلاين</title>
     <link rel="stylesheet" href="style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700&display=swap" rel="stylesheet">
-    <link rel="icon" type="image/x-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>❌</text></svg>">
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
-    <!-- 🌀 شاشة التحميل -->
-    <div id="loading-screen" class="loading-screen">
+    <!-- 🎯 شاشة التحميل -->
+    <div id="loading-screen" class="loading-screen active">
         <div class="loading-content">
-            <div class="loading-spinner large"></div>
-            <h2>🎮 XO المحترف</h2>
-            <p>جاري تحميل اللعبة...</p>
-            <div class="loading-details">
-                <div class="loading-step">⚙️ تهيئة الأنظمة</div>
-                <div class="loading-step">🔗 الاتصال بالخادم</div>
-                <div class="loading-step">🎯 تحميل الواجهة</div>
+            <div class="xo-logo">
+                <span class="x">X</span>
+                <span class="o">O</span>
+            </div>
+            <h1>لعبة XO أونلاين</h1>
+            <div class="loading-bar">
+                <div class="loading-progress"></div>
+            </div>
+            <div class="loading-steps">
+                <div class="step active">🔗 الاتصال بالخادم</div>
+                <div class="step">🎮 تحميل اللعبة</div>
+                <div class="step">✅ جاهز</div>
             </div>
         </div>
     </div>
 
-    <!-- 🎯 الحاوية الرئيسية -->
-    <div class="container" style="display: none;">
-        <!-- 🔄 حالة الاتصال -->
-        <div class="connection-status-bar">
-            <div id="connection-status" class="status-connected">
-                <span class="status-dot"></span>
-                <span class="status-text">متصل</span>
+    <!-- 🏠 الشاشة الرئيسية -->
+    <div class="app-container">
+        <!-- 🔧 شريط الحالة -->
+        <div class="status-bar">
+            <div class="status-left">
+                <div id="connection-status" class="connection-status">
+                    <div class="status-dot"></div>
+                    <span>جاري الاتصال...</span>
+                </div>
             </div>
-            <div class="server-stats">
-                <span id="online-count" class="stat">👥 0</span>
-                <span id="rooms-count" class="stat">🚪 0</span>
-                <span id="games-count" class="stat">🎯 0</span>
+            <div class="status-right">
+                <div class="server-stats">
+                    <div class="stat">
+                        <span class="stat-icon">👥</span>
+                        <span id="online-count">0</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-icon">🎮</span>
+                        <span id="active-rooms">0</span>
+                    </div>
+                </div>
             </div>
         </div>
 
-        <!-- 🏠 شاشة الدخول -->
-        <div id="login-screen" class="screen active">
+        <!-- 🎯 شاشة الدخول -->
+        <div id="login-screen" class="screen">
             <div class="login-container">
                 <div class="login-header">
-                    <h1>🎮 XO المحترف</h1>
-                    <p>لعبة إكس أو أونلاين متعددة اللاعبين</p>
+                    <div class="game-logo">
+                        <span class="x">X</span>
+                        <span class="o">O</span>
+                    </div>
+                    <h1>لعبة XO أونلاين</h1>
+                    <p>العب مع الأصدقاء في الوقت الحقيقي</p>
                 </div>
-                
+
                 <div class="login-form">
-                    <div class="input-group">
-                        <label for="player-name-input">اسم اللاعب:</label>
+                    <div class="input-container">
+                        <label for="player-name">اسم اللاعب</label>
                         <input 
                             type="text" 
-                            id="player-name-input" 
-                            placeholder="ادخل اسمك (2-20 حرف)"
-                            maxlength="20"
+                            id="player-name" 
+                            placeholder="ادخل اسمك هنا..."
+                            maxlength="15"
                             autocomplete="off"
                         >
-                        <div class="input-hint">يمكن استخدام الأحرف العربية، الإنجليزية، والأرقام</div>
+                        <div class="input-info">2-15 حرف، يمكن استخدام العربية والإنجليزية</div>
                     </div>
                     
-                    <button id="join-button" class="btn btn-primary btn-large">
+                    <button id="join-btn" class="btn primary large">
                         <span class="btn-icon">🚀</span>
-                        الدخول إلى الردهة
+                        دخول اللعبة
                     </button>
                 </div>
 
-                <div class="quick-stats">
-                    <div class="stat-card">
-                        <div class="stat-icon">👥</div>
-                        <div class="stat-info">
-                            <div class="stat-value" id="quick-online">0</div>
-                            <div class="stat-label">لاعب متصل</div>
-                        </div>
+                <div class="features">
+                    <div class="feature-card">
+                        <div class="feature-icon">⚡</div>
+                        <h3>لعب فوري</h3>
+                        <p>ابدأ اللعب فوراً بدون انتظار</p>
                     </div>
-                    <div class="stat-card">
-                        <div class="stat-icon">🎮</div>
-                        <div class="stat-info">
-                            <div class="stat-value" id="quick-games">0</div>
-                            <div class="stat-label">لعبة نشطة</div>
-                        </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">👥</div>
+                        <h3>لاعبين حقيقيين</h3>
+                        <p>العب مع لاعبين من حول العالم</p>
                     </div>
-                </div>
-
-                <div class="features-list">
-                    <h3>✨ المميزات:</h3>
-                    <ul>
-                        <li>✅ لاعبين أونلاين فوري</li>
-                        <li>✅ نظام دعوات متقدم</li>
-                        <li>✅ لوحة متصدرين</li>
-                        <li>✅ إشعارات وأصوات</li>
-                        <li>✅ تصميم عربي متكامل</li>
-                    </ul>
+                    <div class="feature-card">
+                        <div class="feature-icon">🎯</div>
+                        <h3>سهل وممتع</h3>
+                        <p>واجهة بسيطة وتجربة سلسة</p>
+                    </div>
                 </div>
             </div>
         </div>
 
         <!-- 👥 شاشة الردهة -->
-        <div id="lobby-screen" class="screen">
+        <div id="lobby-screen" class="screen hidden">
             <div class="lobby-container">
                 <div class="lobby-header">
-                    <div class="player-info">
-                        <span>مرحباً، </span>
-                        <span id="my-name-display" class="player-name">لاعب</span>
+                    <div class="user-info">
+                        <div class="user-avatar">
+                            <span>👤</span>
+                        </div>
+                        <div class="user-details">
+                            <div class="welcome">مرحباً،</div>
+                            <div id="player-name-display" class="player-name">لاعب</div>
+                        </div>
                     </div>
                     <div class="lobby-actions">
-                        <button id="how-to-play-btn" class="btn btn-secondary">
-                            <span class="btn-icon">❓</span>
-                            كيفية اللعب
-                        </button>
-                        <button id="refresh-lobby" class="btn btn-secondary">
+                        <button id="refresh-btn" class="btn secondary">
                             <span class="btn-icon">🔄</span>
                             تحديث
                         </button>
@@ -118,83 +126,89 @@
                 </div>
 
                 <div class="lobby-content">
-                    <div class="players-section">
-                        <div class="section-header">
-                            <h3>👥 اللاعبون المتصلون</h3>
-                            <span class="players-count">
-                                <span id="players-count">0</span> لاعب
-                            </span>
+                    <!-- 📊 إحصائيات سريعة -->
+                    <div class="quick-stats">
+                        <div class="stat-card">
+                            <div class="stat-icon online">👥</div>
+                            <div class="stat-content">
+                                <div class="stat-number" id="lobby-players-count">0</div>
+                                <div class="stat-label">لاعب متصل</div>
+                            </div>
                         </div>
-                        
-                        <div id="lobby-list" class="players-list">
-                            <!-- سيتم ملؤها باللاعبين -->
-                            <div class="empty-state">
-                                <div class="empty-icon">👀</div>
-                                <p>لا يوجد لاعبون آخرون متصلون</p>
-                                <small>افتح نافذة أخرى أو دع صديقاً للانضمام!</small>
+                        <div class="stat-card">
+                            <div class="stat-icon games">🎮</div>
+                            <div class="stat-content">
+                                <div class="stat-number" id="total-games">0</div>
+                                <div class="stat-label">مباراة</div>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon uptime">⏱️</div>
+                            <div class="stat-content">
+                                <div class="stat-number" id="server-uptime">00:00</div>
+                                <div class="stat-label">وقت التشغيل</div>
                             </div>
                         </div>
                     </div>
 
-                    <div class="lobby-sidebar">
-                        <div class="quick-actions">
-                            <h4>🎯 إجراءات سريعة</h4>
-                            <button class="btn btn-primary btn-block" onclick="gameClient.findQuickMatch()">
-                                <span class="btn-icon">⚡</span>
-                                لعبة سريعة
-                            </button>
-                            <button class="btn btn-secondary btn-block" onclick="gameClient.createPrivateRoom()">
-                                <span class="btn-icon">🔒</span>
-                                غرفة خاصة
-                            </button>
+                    <!-- 👥 قائمة اللاعبين -->
+                    <div class="players-section">
+                        <div class="section-header">
+                            <h2>اللاعبون المتصلون</h2>
+                            <div class="players-count">
+                                <span id="available-players">0</span> لاعب متاح
+                            </div>
                         </div>
+                        
+                        <div id="players-list" class="players-list">
+                            <!-- سيتم ملؤها باللاعبين -->
+                        </div>
+                    </div>
 
-                        <div class="server-info">
-                            <h4>📊 إحصائيات السيرفر</h4>
-                            <div class="info-item">
-                                <span>وقت التشغيل:</span>
-                                <span id="server-uptime">00:00:00</span>
-                            </div>
-                            <div class="info-item">
-                                <span>الذاكرة:</span>
-                                <span id="server-memory">0MB</span>
-                            </div>
-                            <div class="info-item">
-                                <span>الاتصالات:</span>
-                                <span id="server-connections">0</span>
-                            </div>
-                        </div>
+                    <!-- 🎯 إجراءات سريعة -->
+                    <div class="quick-actions">
+                        <h3>إجراءات سريعة</h3>
+                        <button id="quick-match" class="btn primary large">
+                            <span class="btn-icon">⚡</span>
+                            مباراة سريعة
+                        </button>
+                        <button id="how-to-play" class="btn secondary">
+                            <span class="btn-icon">❓</span>
+                            طريقة اللعب
+                        </button>
                     </div>
                 </div>
             </div>
         </div>
 
         <!-- 🎮 شاشة اللعبة -->
-        <div id="game-screen" class="screen">
+        <div id="game-screen" class="screen hidden">
             <div class="game-container">
-                <!-- 🎯 رأس اللعبة -->
+                <!-- 🏆 رأس اللعبة -->
                 <div class="game-header">
                     <div class="room-info">
-                        <span id="room-id-display" class="room-id">الغرفة: XXXXXXXX</span>
-                        <span id="moves-count" class="moves-count">0 حركات</span>
+                        <div class="room-id">غرفة: <span id="room-id">XXXXX</span></div>
+                        <div class="game-stats">
+                            <span class="moves">حركات: <span id="moves-count">0</span></span>
+                        </div>
                     </div>
-                    <div class="game-controls">
-                        <button id="leave-room-button" class="btn btn-danger btn-small">
+                    <div class="game-actions">
+                        <button id="leave-game" class="btn danger small">
                             <span class="btn-icon">🚪</span>
-                            مغادرة
+                            خروج
                         </button>
                     </div>
                 </div>
 
                 <!-- 👥 معلومات اللاعبين -->
-                <div class="players-info">
-                    <div id="player-x-display" class="player-info-card">
-                        <div class="player-badge x-badge">
-                            <span class="player-symbol">X</span>
-                        </div>
-                        <div class="player-details">
-                            <div class="player-name" id="player-x-name">...</div>
-                            <div class="player-status">في انتظار...</div>
+                <div class="players-display">
+                    <div class="player-card player-x">
+                        <div class="player-header">
+                            <div class="player-symbol x">X</div>
+                            <div class="player-info">
+                                <div class="player-name" id="player-x-name">...</div>
+                                <div class="player-status" id="player-x-status">في انتظار...</div>
+                            </div>
                         </div>
                     </div>
 
@@ -202,252 +216,87 @@
                         <span>VS</span>
                     </div>
 
-                    <div id="player-o-display" class="player-info-card">
-                        <div class="player-badge o-badge">
-                            <span class="player-symbol">O</span>
-                        </div>
-                        <div class="player-details">
-                            <div class="player-name" id="player-o-name">...</div>
-                            <div class="player-status">في انتظار...</div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 📊 إحصائيات اللعبة -->
-                <div class="game-stats">
-                    <div class="stat-item">
-                        <div class="stat-icon">⏱️</div>
-                        <div class="stat-info">
-                            <div class="stat-value" id="timer">00:00</div>
-                            <div class="stat-label">الوقت</div>
-                        </div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="stat-icon">🎯</div>
-                        <div class="stat-info">
-                            <div class="stat-value" id="moves">0</div>
-                            <div class="stat-label">الحركات</div>
+                    <div class="player-card player-o">
+                        <div class="player-header">
+                            <div class="player-info">
+                                <div class="player-name" id="player-o-name">...</div>
+                                <div class="player-status" id="player-o-status">في انتظار...</div>
+                            </div>
+                            <div class="player-symbol o">O</div>
                         </div>
                     </div>
                 </div>
 
-                <!-- 📢 رسالة الحالة -->
-                <div id="status-message" class="status-message">
-                    <span class="message-icon">🎮</span>
-                    <span class="message-text">جاري إعداد اللعبة...</span>
+                <!-- 📢 حالة اللعبة -->
+                <div id="game-status" class="game-status">
+                    <div class="status-icon">🎮</div>
+                    <div class="status-message" id="status-message">جاري إعداد اللعبة...</div>
                 </div>
 
                 <!-- 🎲 لوحة اللعبة -->
-                <div class="game-board-container">
-                    <div id="game-board" class="board">
-                        <!-- سيتم إنشاء 9 خلايا بالجافاسكريبت -->
+                <div class="game-board">
+                    <div id="board" class="board">
+                        <!-- سيتم إنشاء الخلايا بالجافاسكريبت -->
                     </div>
                 </div>
 
-                <!-- 🎛️ أزرار التحكم -->
-                <div class="game-actions">
-                    <button id="restart-button" class="btn btn-secondary" disabled>
+                <!-- 🎛️ تحكم اللعبة -->
+                <div class="game-controls">
+                    <button id="restart-game" class="btn secondary" disabled>
                         <span class="btn-icon">🔄</span>
                         إعادة اللعبة
                     </button>
-                    <button id="ready-button" class="btn btn-primary" style="display: none;">
+                    <button id="ready-btn" class="btn primary hidden">
                         <span class="btn-icon">✅</span>
-                        جاهز للجولة التالية
+                        جاهز
                     </button>
                 </div>
             </div>
         </div>
 
-        <!-- 📊 التبويبات الرئيسية -->
-        <nav class="main-nav">
-            <div class="nav-tabs">
-                <button class="nav-tab active" data-tab="play">
-                    <span class="tab-icon">🎮</span>
-                    <span class="tab-text">اللعب</span>
-                </button>
-                <button class="nav-tab" data-tab="leaderboard">
-                    <span class="tab-icon">🏆</span>
-                    <span class="tab-text">المتصدرين</span>
-                </button>
-                <button class="nav-tab" data-tab="how-to-play">
-                    <span class="tab-icon">❓</span>
-                    <span class="tab-text">كيفية اللعب</span>
-                </button>
-            </div>
-        </nav>
-
-        <!-- 📋 محتويات التبويبات -->
-        <div class="tab-contents">
-            <!-- 🎮 تبويب اللعب (افتراضي) -->
-            <div id="play-tab" class="tab-content active">
-                <!-- محتوى شاشات اللعب يظهر هنا -->
-            </div>
-
-            <!-- 🏆 تبويب المتصدرين -->
-            <div id="leaderboard-tab" class="tab-content">
-                <div class="leaderboard-container">
-                    <div class="leaderboard-header">
-                        <h2>🏆 لوحة المتصدرين</h2>
-                        <button id="refresh-leaderboard" class="btn btn-secondary btn-small">
-                            <span class="btn-icon">🔄</span>
-                            تحديث
-                        </button>
-                    </div>
-                    
-                    <div id="leaderboard-list" class="leaderboard-list">
-                        <!-- سيتم ملؤها بالمتسابقين -->
-                        <div class="empty-state">
-                            <div class="empty-icon">🏆</div>
-                            <p>لا توجد بيانات للمتصدرين بعد</p>
-                            <small>العب بعض المباريات لتظهر في التصنيف!</small>
-                        </div>
+        <!-- 📧 نافذة الدعوة -->
+        <div id="invite-modal" class="modal hidden">
+            <div class="modal-overlay"></div>
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>📩 دعوة للعب</h3>
+                    <button class="modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="invite-icon">🎯</div>
+                    <p class="invite-message">يدعوك للعب</p>
+                    <div class="inviter-info">
+                        <div class="inviter-avatar">👤</div>
+                        <div class="inviter-name" id="inviter-name">لاعب</div>
                     </div>
                 </div>
-            </div>
-
-            <!-- ❓ تبويب كيفية اللعب -->
-            <div id="how-to-play-tab" class="tab-content">
-                <div class="how-to-play-container">
-                    <h2>❓ كيفية اللعب</h2>
-                    
-                    <div class="instructions">
-                        <div class="instruction-step">
-                            <div class="step-number">1</div>
-                            <div class="step-content">
-                                <h3>الدخول إلى اللعبة</h3>
-                                <p>ادخل اسمك واضغط على "الدخول إلى الردهة"</p>
-                            </div>
-                        </div>
-
-                        <div class="instruction-step">
-                            <div class="step-number">2</div>
-                            <div class="step-content">
-                                <h3>إرسال دعوة</h3>
-                                <p>اختر لاعباً من القائمة واضغط على "دعوة" للعب معه</p>
-                            </div>
-                        </div>
-
-                        <div class="instruction-step">
-                            <div class="step-number">3</div>
-                            <div class="step-content">
-                                <h3>بدء اللعبة</h3>
-                                <p>عند قبول الدعوة، تبدأ اللعبة تلقائياً</p>
-                            </div>
-                        </div>
-
-                        <div class="instruction-step">
-                            <div class="step-number">4</div>
-                            <div class="step-content">
-                                <h3>قواعد اللعبة</h3>
-                                <ul>
-                                    <li>اللاعب X يبدأ دائماً</li>
-                                    <li>الهدف هو تكوين خط من 3 رموز متشابهة</li>
-                                    <li>يمكن أن يكون الخط أفقياً، عمودياً، أو قطرياً</li>
-                                    <li>إذا امتلئ اللوح بدون فائز، تكون النتيجة تعادل</li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="game-tips">
-                        <h3>💡 نصائح للفوز</h3>
-                        <div class="tips-grid">
-                            <div class="tip-card">
-                                <div class="tip-icon">🎯</div>
-                                <p>حاول السيطرة على مركز اللوح</p>
-                            </div>
-                            <div class="tip-card">
-                                <div class="tip-icon">🔄</div>
-                                <p>انتبه لحركات الخصم وخطط مسبقاً</p>
-                            </div>
-                            <div class="tip-card">
-                                <div class="tip-icon">⚡</div>
-                                <p>استغل الفرص لإنشاء تهديدات مزدوجة</p>
-                            </div>
-                        </div>
-                    </div>
+                <div class="modal-actions">
+                    <button id="decline-invite" class="btn secondary">
+                        <span class="btn-icon">❌</span>
+                        رفض
+                    </button>
+                    <button id="accept-invite" class="btn primary">
+                        <span class="btn-icon">✅</span>
+                        قبول
+                    </button>
                 </div>
             </div>
         </div>
+
+        <!-- 💬 الإشعارات -->
+        <div id="notifications" class="notifications-container"></div>
     </div>
 
-    <!-- 📧 نافذة الدعوة -->
-    <div id="invite-modal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>📨 دعوة للعب</h3>
-                <button class="modal-close">&times;</button>
-            </div>
-            <div class="modal-body">
-                <p id="invite-message">لديك دعوة للعب من</p>
-                <div class="inviter-info">
-                    <span class="inviter-avatar">👤</span>
-                    <span id="inviter-name" class="inviter-name">لاعب</span>
-                </div>
-            </div>
-            <div class="modal-actions">
-                <button id="decline-invite" class="btn btn-secondary">
-                    <span class="btn-icon">❌</span>
-                    رفض
-                </button>
-                <button id="accept-invite" class="btn btn-primary">
-                    <span class="btn-icon">✅</span>
-                    قبول
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <!-- 💬 الإشعارات -->
-    <div id="notification-container" class="notification-container"></div>
-
-    <!-- 🎵 العناصر الصوتية -->
-    <audio id="move-sound" preload="auto">
-        <source src="assets/move-sound.mp3" type="audio/mpeg">
+    <!-- 🎵 الأصوات -->
+    <audio id="click-sound" preload="auto">
+        <source src="data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==" type="audio/wav">
     </audio>
     <audio id="win-sound" preload="auto">
-        <source src="assets/win-sound.mp3" type="audio/mpeg">
-    </audio>
-    <audio id="draw-sound" preload="auto">
-        <source src="assets/draw-sound.mp3" type="audio/mpeg">
-    </audio>
-    <audio id="notification-sound" preload="auto">
-        <source src="assets/notification-sound.mp3" type="audio/mpeg">
+        <source src="data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==" type="audio/wav">
     </audio>
 
     <!-- 📚 المكتبات -->
     <script src="/socket.io/socket.io.js"></script>
     <script src="client.js"></script>
-
-    <!-- 🛠️ Script إضافي -->
-    <script>
-        // تهيئة الأصوات الافتراضية إذا لم تكن الملفات موجودة
-        window.addEventListener('load', function() {
-            const sounds = ['move-sound', 'win-sound', 'draw-sound', 'notification-sound'];
-            sounds.forEach(soundId => {
-                const sound = document.getElementById(soundId);
-                if (sound) {
-                    sound.addEventListener('error', function() {
-                        console.log(`🔇 الصوت ${soundId} غير متوفر، سيتم استخدام بديل`);
-                    });
-                }
-            });
-        });
-
-        // منع سلوك النموذج الافتراضي
-        document.addEventListener('submit', function(e) {
-            e.preventDefault();
-        });
-
-        // إدارة حالة التبويبات
-        document.addEventListener('click', function(e) {
-            if (e.target.classList.contains('nav-tab')) {
-                const tabName = e.target.dataset.tab;
-                if (window.gameClient) {
-                    window.gameClient.switchTab(tabName);
-                }
-            }
-        });
-    </script>
 </body>
 </html>
