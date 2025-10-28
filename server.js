@@ -392,6 +392,24 @@ class XOGameServer {
     start() {
         const PORT = process.env.PORT || 3000;
         const HOST = '0.0.0.0';
+       
+// 🔧 إصلاح CORS وإضافة health check
+this.app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    next();
+});
+
+// 🩺 صفحة فحص السيرفر
+this.app.get('/api/status', (req, res) => {
+    res.json({
+        status: 'running',
+        players: this.players.size,
+        rooms: this.rooms.size,
+        timestamp: new Date().toISOString()
+    });
+});
 
         this.server.listen(PORT, HOST, () => {
             console.log('🎮 خادم XO يعمل على PORT:', PORT);
