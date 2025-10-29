@@ -1,635 +1,885 @@
-// ===============================================
-// 🚀 XO Game Server - النسخة المحسنة والكاملة
-// ===============================================
-
 const express = require('express');
 const http = require('http');
-const socketIo = require('socket.io');
 const path = require('path');
+const { Server } = require('socket.io');
+const compression = require('compression');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const cors = require('cors');
 
 class XOGameServer {
     constructor() {
         this.app = express();
         this.server = http.createServer(this.app);
-        this.io = socketIo(this.server, {
+        
+        // إعدادات الإنتاج
+        this.PORT = process.env.PORT || 3000;
+        this.NODE_ENV = process.env.NODE_ENV || 'development';
+        this.CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:3000';
+        
+        // إعداد Socket.IO مع CORS آمن
+        this.io = new Server(this.server, {
             cors: {
-                origin: "*",
-                methods: ["GET", "POST"]
+                origin: this.CLIENT_URL,
+                methods: ["GET", "POST"],
+                credentials: true
             },
             pingTimeout: 60000,
             pingInterval: 25000
         });
-
-        // حالة السيرفر
+        
+        // هياكل البيانات المحسنة
         this.players = new Map();
         this.rooms = new Map();
-        this.lobbyPlayers = new Set();
-        this.playerInvites = new Map();
+        this.pendingInvites = new Map();
+        this.roomCounter = 1;
         this.gameStats = {
             totalGames: 0,
+            totalPlayers: 0,
             totalMoves: 0,
-            startTime: Date.now()
+            onlinePlayers: 0
         };
-
-        this.setupMiddleware();
-        this.setupRoutes();
+        
+        // إعدادات اللعبة
+        this.WINNING_LINES = [
+            [0, 1, 2], [3, 4, 5], [6, 7, 8],
+            [0, 3, 6], [1, 4, 7], [2, 5, 8],
+            [0, 4, 8], [2, 4, 6]
+        ];
+        
+        this.MOVE_COOLDOWN = 400;
+        this.MAX_NAME_LENGTH = 20;
+        this.MAX_ROOM_AGE = 10 * 60 * 1000; // 10 دقائق
+        
+        this.initializeSecurity();
+        this.initializeServer();
         this.setupSocketHandlers();
+        this.startCleanupIntervals();
         
-        console.log('🎮 خادم XO المحسن - جاهز للتشغيل');
+        console.log(`🎮 خادم XO المحسن - الوضع: ${this.NODE_ENV}`);
     }
-
-    setupMiddleware() {
-        // 📦 خدم الملفات الثابتة
-        this.app.use(express.static(path.join(__dirname, 'public')));
+    
+    initializeSecurity() {
+        // أمان Express
+        this.app.use(helmet({
+            contentSecurityPolicy: {
+                directives: {
+                    defaultSrc: ["'self'"],
+                    styleSrc: ["'self'", "'unsafe-inline'"],
+                    scriptSrc: ["'self'", "'unsafe-inline'"],
+                    connectSrc: ["'self'", "ws:", "wss:"]
+                }
+            },
+            crossOriginEmbedderPolicy: false
+        }));
         
-        // 📝 تحقق من حجم البيانات
+        // ضغط البيانات
+        this.app.use(compression());
+        
+        // CORS
+        this.app.use(cors({
+            origin: this.CLIENT_URL,
+            credentials: true
+        }));
+        
+        // Rate Limiting
+        const limiter = rateLimit({
+            windowMs: 1 * 60 * 1000, // 1 دقيقة
+            max: 100, // 100 طلب كحد أقصى
+            message: 'Too many requests from this IP'
+        });
+        this.app.use(limiter);
+        
+        // إخفاء معلومات الخادم
+        this.app.disable('x-powered-by');
+    }
+    
+    initializeServer() {
+        // خدمة الملفات الثابتة
+        this.app.use(express.static(path.join(__dirname, 'public'), {
+            maxAge: this.NODE_ENV === 'production' ? '1h' : '0'
+        }));
+        
+        // تحقق من صحة البيانات
         this.app.use(express.json({ limit: '10kb' }));
         this.app.use(express.urlencoded({ extended: true, limit: '10kb' }));
         
-        // 🔧 CORS
-        this.app.use((req, res, next) => {
-            res.header('Access-Control-Allow-Origin', '*');
-            res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
-            res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-            next();
-        });
-    }
-
-    setupRoutes() {
-        // 🏠 الصفحة الرئيسية
+        // الصفحة الرئيسية
         this.app.get('/', (req, res) => {
             res.sendFile(path.join(__dirname, 'public', 'index.html'));
         });
-
-        // ❤️ صفحة الصحة
-        this.app.get('/health', (req, res) => {
+        
+        // API للحالة والإحصائيات
+        this.app.get('/api/status', (req, res) => {
             res.json({
-                status: 'OK',
-                players: this.players.size,
-                rooms: this.rooms.size,
-                totalGames: this.gameStats.totalGames,
-                uptime: Math.floor((Date.now() - this.gameStats.startTime) / 1000)
-            });
-        });
-
-        // 📊 إحصائيات السيرفر
-        this.app.get('/api/stats', (req, res) => {
-            res.json(this.getServerStats());
-        });
-    }
-
-    setupSocketHandlers() {
-        this.io.on('connection', (socket) => {
-            console.log(`🔗 لاعب متصل: ${socket.id}`);
-            
-            // 👤 أحداث اللاعب
-            socket.on('joinLobby', (data) => this.handleJoinLobby(socket, data));
-            socket.on('sendInvite', (data) => this.handleSendInvite(socket, data));
-            socket.on('acceptInvite', (data) => this.handleAcceptInvite(socket, data));
-            socket.on('declineInvite', (data) => this.handleDeclineInvite(socket, data));
-
-            // 🎮 أحداث اللعبة
-            socket.on('makeMove', (data) => this.handleMakeMove(socket, data));
-            socket.on('requestRestart', () => this.handleRequestRestart(socket));
-            socket.on('playerReady', () => this.handlePlayerReady(socket));
-            socket.on('leaveRoom', () => this.handleLeaveRoom(socket));
-
-            // 🔄 أحداث النظام
-            socket.on('getLobbyUpdate', () => this.handleLobbyUpdate(socket));
-            socket.on('getLeaderboard', () => this.handleGetLeaderboard(socket));
-            socket.on('ping', (callback) => {
-                if (typeof callback === 'function') {
-                    callback('pong');
+                status: 'running',
+                environment: this.NODE_ENV,
+                stats: {
+                    onlinePlayers: this.players.size,
+                    activeRooms: this.rooms.size,
+                    pendingInvites: this.pendingInvites.size,
+                    totalGames: this.gameStats.totalGames,
+                    totalMoves: this.gameStats.totalMoves
+                },
+                server: {
+                    uptime: process.uptime(),
+                    memory: process.memoryUsage(),
+                    version: '2.0.0'
                 }
             });
-
-            // 🚪 أحداث الانفصال
-            socket.on('disconnect', (reason) => this.handleDisconnect(socket, reason));
+        });
+        
+        // صفحة الإحصائيات
+        this.app.get('/api/leaderboard', (req, res) => {
+            const leaderboard = Array.from(this.players.values())
+                .filter(player => player.stats && player.stats.games > 0)
+                .map(player => ({
+                    name: player.name,
+                    wins: player.stats.wins || 0,
+                    losses: player.stats.losses || 0,
+                    draws: player.stats.draws || 0,
+                    totalGames: player.stats.games || 0
+                }))
+                .sort((a, b) => b.wins - a.wins)
+                .slice(0, 10);
+            
+            res.json({ leaderboard });
+        });
+        
+        // صفحة 404
+        this.app.use('*', (req, res) => {
+            res.status(404).json({ 
+                error: 'الصفحة غير موجودة',
+                timestamp: new Date().toISOString()
+            });
+        });
+        
+        // معالج الأخطاء
+        this.app.use((err, req, res, next) => {
+            console.error('🔥 خطأ في الخادم:', err);
+            res.status(500).json({ 
+                error: 'حدث خطأ داخلي في الخادم',
+                timestamp: new Date().toISOString()
+            });
         });
     }
-
-    // 👤 معالجة أحداث اللاعبين
-    async handleJoinLobby(socket, data) {
-        try {
-            if (!this.validatePlayerName(data.playerName)) {
-                socket.emit('error', { message: 'اسم اللاعب غير صالح (2-20 حرف)' });
-                return;
-            }
-
-            // منع الأسماء المكررة
-            if (this.isDuplicateName(data.playerName)) {
-                socket.emit('error', { message: 'الاسم مستخدم بالفعل' });
-                return;
-            }
-
-            const player = {
-                id: socket.id,
-                name: data.playerName.trim(),
-                socket: socket,
-                status: 'available',
-                joinedAt: Date.now(),
-                lastActivity: Date.now()
-            };
-
-            this.players.set(socket.id, player);
-            this.lobbyPlayers.add(socket.id);
-
-            socket.emit('lobbyJoined', {
-                playerName: player.name,
-                leaderboard: this.getLeaderboard(),
-                serverStats: this.getServerStats()
-            });
-
-            this.broadcastLobbyUpdate();
-            console.log(`👤 ${player.name} انضم للردهة`);
+    
+    setupSocketHandlers() {
+        this.io.on('connection', (socket) => {
+            this.log(`🔗 لاعب متصل: ${socket.id}`, 'info');
             
-        } catch (error) {
-            socket.emit('error', { message: error.message });
-        }
+            // زيادة عداد اللاعبين
+            this.gameStats.onlinePlayers++;
+            
+            // تسجيل المعالجين
+            this.registerEventHandlers(socket);
+            
+            // إرسال الإحصائيات الحالية
+            socket.emit('serverStats', {
+                onlinePlayers: this.gameStats.onlinePlayers,
+                activeRooms: this.rooms.size
+            });
+            
+            // تنظيف عند الانفصال
+            socket.on('disconnect', () => this.handleDisconnect(socket));
+            
+            // ping/pong للتحقق من الاتصال
+            socket.on('ping', (cb) => {
+                if (typeof cb === 'function') {
+                    cb('pong');
+                }
+            });
+        });
     }
-
-    async handleSendInvite(socket, data) {
-        try {
-            const sender = this.players.get(socket.id);
-            const target = this.players.get(data.targetId);
-
-            if (!sender || !target) {
-                socket.emit('error', { message: 'اللاعب غير موجود' });
-                return;
-            }
-
-            // منع إرسال دعوة لنفسك
-            if (sender.id === target.id) {
-                socket.emit('error', { message: 'لا يمكن إرسال دعوة لنفسك' });
-                return;
-            }
-
-            if (sender.status !== 'available' || target.status !== 'available') {
-                socket.emit('error', { message: 'اللاعب غير متاح حالياً' });
-                return;
-            }
-
-            // التحقق من وجود دعوة pending
-            if (this.hasPendingInvite(sender.id, target.id)) {
-                socket.emit('error', { message: 'لديك دعوة pending لهذا اللاعب' });
-                return;
-            }
-
-            // إنشاء دعوة
-            const inviteId = this.generateInviteId();
-            this.playerInvites.set(inviteId, {
-                id: inviteId,
-                senderId: sender.id,
-                targetId: target.id,
-                senderName: sender.name,
-                timestamp: Date.now(),
-                status: 'pending'
+    
+    registerEventHandlers(socket) {
+        const handlers = {
+            'joinLobby': (data) => this.handleJoinLobby(socket, data),
+            'sendInvite': (data) => this.handleSendInvite(socket, data),
+            'acceptInvite': (data) => this.handleAcceptInvite(socket, data),
+            'declineInvite': (data) => this.handleDeclineInvite(socket, data),
+            'makeMove': (data) => this.handleMakeMove(socket, data),
+            'requestRestart': () => this.handleRestartRequest(socket),
+            'leaveRoom': () => this.handleLeaveRoom(socket),
+            'playerReady': () => this.handlePlayerReady(socket),
+            'getLeaderboard': () => this.sendLeaderboard(socket)
+        };
+        
+        Object.entries(handlers).forEach(([event, handler]) => {
+            socket.on(event, (data) => {
+                try {
+                    handler(data);
+                } catch (error) {
+                    this.log(`خطأ في معالجة ${event}: ${error.message}`, 'error');
+                    socket.emit('error', { message: 'حدث خطأ في المعالجة' });
+                }
             });
-
-            // إرسال الدعوة للهدف
-            target.socket.emit('inviteReceived', {
-                inviterId: sender.id,
-                inviterName: sender.name,
-                inviteId: inviteId
-            });
-
-            socket.emit('inviteSent', { 
-                targetName: target.name,
-                message: `تم إرسال دعوة إلى ${target.name}`
-            });
-
-            console.log(`📨 ${sender.name} أرسل دعوة لـ ${target.name}`);
-            
-        } catch (error) {
-            socket.emit('error', { message: error.message });
-        }
+        });
     }
-
-    async handleAcceptInvite(socket, data) {
-        try {
-            const invite = this.playerInvites.get(data.inviteId);
-            if (!invite || invite.targetId !== socket.id) {
-                socket.emit('error', { message: 'الدعوة غير موجودة أو منتهية' });
-                return;
-            }
-
-            const sender = this.players.get(invite.senderId);
-            const acceptor = this.players.get(socket.id);
-
-            if (!sender || !acceptor) {
-                socket.emit('error', { message: 'اللاعب غير موجود' });
-                return;
-            }
-
-            // تحديث حالة الدعوة
-            invite.status = 'accepted';
-            
-            // تحديث حالة اللاعبين
-            sender.status = 'in_game';
-            acceptor.status = 'in_game';
-
-            // إنشاء غرفة جديدة
-            const room = this.createRoom(sender, acceptor);
-            
-            // تنظيف الدعوات
-            this.cleanupPlayerInvites(sender.id);
-            this.cleanupPlayerInvites(acceptor.id);
-
-            // إشعار اللاعبين ببدء اللعبة
-            this.io.to(room.id).emit('gameStarted', {
-                room: room,
-                players: room.players,
-                mySymbol: room.players.find(p => p.id === socket.id)?.symbol
-            });
-
-            this.broadcastLobbyUpdate();
-            console.log(`✅ ${acceptor.name} قبل دعوة ${sender.name}`);
-            
-        } catch (error) {
-            socket.emit('error', { message: error.message });
+    
+    // ========== معالجة الأحداث الرئيسية ==========
+    
+    handleJoinLobby(socket, data) {
+        const playerName = typeof data === 'string' ? data : data?.playerName;
+        const sanitizedName = this.sanitizeName(playerName);
+        
+        // التحقق من صحة الاسم
+        if (!this.validateName(sanitizedName)) {
+            socket.emit('error', { message: 'الاسم يجب أن يكون بين 2 و 20 حرفاً' });
+            return;
         }
+        
+        // التحقق من عدم وجود الاسم مسبقاً
+        if (this.isNameTaken(sanitizedName, socket.id)) {
+            socket.emit('error', { message: 'هذا الاسم مستخدم بالفعل' });
+            return;
+        }
+        
+        // تسجيل اللاعب
+        this.players.set(socket.id, {
+            id: socket.id,
+            name: sanitizedName,
+            status: 'available',
+            roomId: null,
+            isReady: false,
+            lastMoveTime: 0,
+            joinedAt: Date.now(),
+            stats: {
+                wins: 0,
+                losses: 0,
+                draws: 0,
+                games: 0
+            }
+        });
+        
+        this.gameStats.totalPlayers++;
+        
+        // إرسال تأكيد الانضمام
+        socket.emit('lobbyJoined', {
+            playerName: sanitizedName,
+            playerId: socket.id,
+            leaderboard: this.getLeaderboardData()
+        });
+        
+        this.broadcastLobbyUpdate();
+        this.broadcastServerStats();
+        
+        this.log(`🎮 ${sanitizedName} انضم للردهة`, 'info');
     }
-
-    async handleDeclineInvite(socket, data) {
-        try {
-            const invite = this.playerInvites.get(data.inviteId);
-            if (!invite) return;
-
-            const sender = this.players.get(invite.senderId);
-            if (sender) {
-                sender.socket.emit('inviteDeclined', {
-                    targetName: this.players.get(socket.id)?.name
+    
+    handleSendInvite(socket, data) {
+        const targetId = typeof data === 'string' ? data : data?.targetId;
+        const inviter = this.players.get(socket.id);
+        const target = this.players.get(targetId);
+        
+        if (!this.validateInvite(inviter, target)) {
+            socket.emit('error', { message: 'لا يمكن إرسال الدعوة' });
+            return;
+        }
+        
+        // تحديث حالة المرسل
+        inviter.status = 'awaiting_response';
+        
+        // حفظ الدعوة مع وقت انتهاء
+        this.pendingInvites.set(targetId, {
+            inviterId: socket.id,
+            inviterName: inviter.name,
+            timestamp: Date.now(),
+            expiresAt: Date.now() + 30000 // 30 ثانية
+        });
+        
+        // إرسال الدعوة للهدف
+        this.io.to(targetId).emit('inviteReceived', {
+            inviterId: socket.id,
+            inviterName: inviter.name,
+            expiresIn: 30000
+        });
+        
+        this.broadcastLobbyUpdate();
+        this.log(`📩 ${inviter.name} أرسل دعوة لـ ${target.name}`, 'info');
+    }
+    
+    handleAcceptInvite(socket, data) {
+        const inviterId = typeof data === 'string' ? data : data?.inviterId;
+        const invite = this.pendingInvites.get(socket.id);
+        const acceptor = this.players.get(socket.id);
+        const inviter = this.players.get(inviterId);
+        
+        if (!this.validateInviteAcceptance(invite, acceptor, inviter)) {
+            socket.emit('error', { message: 'الدعوة لم تعد صالحة' });
+            return;
+        }
+        
+        // تنظيف الدعوة
+        this.pendingInvites.delete(socket.id);
+        
+        // إنشاء غرفة جديدة
+        const roomId = `room_${this.roomCounter++}`;
+        const room = this.createGameRoom(roomId, inviterId, socket.id);
+        
+        this.rooms.set(roomId, room);
+        this.gameStats.totalGames++;
+        
+        // تحديث حالة اللاعبين
+        inviter.status = 'in_game';
+        inviter.roomId = roomId;
+        inviter.isReady = false;
+        
+        acceptor.status = 'in_game';
+        acceptor.roomId = roomId;
+        acceptor.isReady = false;
+        
+        // انضمام للغرفة
+        socket.join(roomId);
+        this.io.sockets.sockets.get(inviterId)?.join(roomId);
+        
+        // بدء اللعبة
+        this.startGame(roomId);
+        
+        this.broadcastLobbyUpdate();
+        this.broadcastServerStats();
+        
+        this.log(`🎯 بدأت لعبة في ${roomId} بين ${inviter.name} و ${acceptor.name}`, 'info');
+    }
+    
+    handleMakeMove(socket, data) {
+        const cellIndex = typeof data === 'number' ? data : data?.cellIndex;
+        const player = this.players.get(socket.id);
+        
+        if (!player?.roomId) {
+            socket.emit('error', { message: 'أنت لست في غرفة' });
+            return;
+        }
+        
+        const room = this.rooms.get(player.roomId);
+        if (!room) {
+            socket.emit('error', { message: 'الغرفة غير موجودة' });
+            return;
+        }
+        
+        // التحقق من صحة الحركة
+        if (!this.validateMove(socket, room, cellIndex)) {
+            socket.emit('error', { message: 'حركة غير صالحة' });
+            return;
+        }
+        
+        // تحديث وقت الحركة وعداد الحركات
+        player.lastMoveTime = Date.now();
+        this.gameStats.totalMoves++;
+        
+        // تنفيذ الحركة
+        this.executeMove(room, cellIndex, player);
+        
+        // التحقق من النتيجة
+        const gameResult = this.checkGameResult(room);
+        
+        // تحديث إحصائيات اللاعبين إذا انتهت اللعبة
+        if (gameResult && gameResult !== 'continue') {
+            this.updatePlayerStats(room, gameResult);
+        }
+        
+        // إرسال تحديث الحالة
+        this.emitToRoom(room.id, 'gameStateUpdated', {
+            state: room.state,
+            lastMove: { cellIndex, player: player.name }
+        });
+        
+        this.broadcastServerStats();
+    }
+    
+    handleRestartRequest(socket) {
+        const player = this.players.get(socket.id);
+        if (!player?.roomId) return;
+        
+        const room = this.rooms.get(player.roomId);
+        if (!room) return;
+        
+        // وضع اللاعب في حالة جاهز
+        player.isReady = true;
+        
+        // التحقق إذا كان كلا اللاعبين جاهزين
+        const allPlayersReady = Object.keys(room.players).every(playerId => 
+            this.players.get(playerId)?.isReady
+        );
+        
+        if (allPlayersReady) {
+            this.restartGame(room.id);
+        } else {
+            // إعلام اللاعب الآخر أن الشريك يريد إعادة اللعب
+            const otherPlayerId = Object.keys(room.players).find(id => id !== socket.id);
+            if (otherPlayerId) {
+                this.io.to(otherPlayerId).emit('playerRequestedRestart', {
+                    playerName: player.name
                 });
             }
-
-            this.playerInvites.delete(data.inviteId);
-            console.log(`❌ دعوة مرفوضة من ${socket.id}`);
-            
-        } catch (error) {
-            socket.emit('error', { message: error.message });
         }
     }
-
-    // 🎮 معالجة أحداث اللعبة
-    async handleMakeMove(socket, data) {
-        try {
-            const room = this.findPlayerRoom(socket.id);
-            if (!room) {
-                socket.emit('error', { message: 'اللاعب ليس في غرفة' });
-                return;
+    
+    handlePlayerReady(socket) {
+        const player = this.players.get(socket.id);
+        if (!player?.roomId) return;
+        
+        const room = this.rooms.get(player.roomId);
+        if (!room) return;
+        
+        player.isReady = true;
+        
+        // التحقق إذا كان كلا اللاعبين جاهزين
+        const allPlayersReady = Object.keys(room.players).every(playerId => 
+            this.players.get(playerId)?.isReady
+        );
+        
+        if (allPlayersReady) {
+            this.restartGame(room.id);
+        }
+    }
+    
+    handleLeaveRoom(socket) {
+        const player = this.players.get(socket.id);
+        if (player?.roomId) {
+            this.handlePlayerExit(socket.id, player.roomId, 'left');
+        }
+    }
+    
+    handleDisconnect(socket) {
+        const player = this.players.get(socket.id);
+        if (player) {
+            if (player.roomId) {
+                this.handlePlayerExit(socket.id, player.roomId, 'disconnected');
             }
-
-            const player = room.players.find(p => p.id === socket.id);
-            if (!player) {
-                socket.emit('error', { message: 'اللاعب ليس في هذه الغرفة' });
-                return;
-            }
-
-            // التحقق من صحة الحركة
-            if (!this.validateMove(room, player, data.cellIndex)) {
-                socket.emit('error', { message: 'حركة غير صالحة' });
-                return;
-            }
-
-            // تنفيذ الحركة
-            room.state.board[data.cellIndex] = room.state.currentPlayer;
-            room.state.moves++;
-            room.lastActivity = Date.now();
-            this.gameStats.totalMoves++;
-
-            // التحقق من الفوز
-            const winner = this.checkWinner(room.state.board);
-            if (winner) {
-                room.state.winner = winner;
-                room.state.active = false;
-                room.state.message = winner === 'draw' ? 'تعادل!' : `فاز ${winner}!`;
-                this.gameStats.totalGames++;
-                
-                // تحديث إحصائيات اللاعبين
-                this.updatePlayerStats(room, winner);
-            } else {
-                // تبديل اللاعب
-                room.state.currentPlayer = room.state.currentPlayer === 'X' ? 'O' : 'X';
-                room.state.message = `دور اللاعب ${room.state.currentPlayer}`;
-            }
-
-            // إرسال تحديث اللعبة للغرفة
-            this.io.to(room.id).emit('gameStateUpdated', {
-                state: room.state,
-                moves: room.state.moves
+            this.players.delete(socket.id);
+            this.pendingInvites.delete(socket.id);
+        }
+        
+        // تحديث عداد اللاعبين
+        this.gameStats.onlinePlayers = Math.max(0, this.gameStats.onlinePlayers - 1);
+        
+        this.broadcastLobbyUpdate();
+        this.broadcastServerStats();
+        
+        this.log(`❌ لاعب غادر: ${socket.id}`, 'info');
+    }
+    
+    // ========== منطق اللعبة الأساسي ==========
+    
+    createGameRoom(roomId, player1Id, player2Id) {
+        const player1 = this.players.get(player1Id);
+        const player2 = this.players.get(player2Id);
+        
+        return {
+            id: roomId,
+            players: {
+                [player1Id]: { 
+                    id: player1Id,
+                    name: player1.name,
+                    symbol: 'X',
+                    isReady: false
+                },
+                [player2Id]: {
+                    id: player2Id,
+                    name: player2.name, 
+                    symbol: 'O',
+                    isReady: false
+                }
+            },
+            state: {
+                board: Array(9).fill(null),
+                currentPlayer: 'X',
+                winner: null,
+                draw: false,
+                active: true,
+                moves: 0,
+                message: '🎮 ابدأ اللعب! دور X'
+            },
+            createdAt: Date.now(),
+            lastActivity: Date.now()
+        };
+    }
+    
+    startGame(roomId) {
+        const room = this.rooms.get(roomId);
+        if (!room) return;
+        
+        room.state.active = true;
+        room.state.message = '🎮 ابدأ اللعب! دور X';
+        room.lastActivity = Date.now();
+        
+        // إرسال بيانات بدء اللعبة لكل لاعب
+        Object.keys(room.players).forEach(playerId => {
+            const player = room.players[playerId];
+            this.io.to(playerId).emit('gameStarted', {
+                room: this.getPublicRoomData(room),
+                mySymbol: player.symbol,
+                opponent: this.getOpponentData(room, playerId)
             });
-
-            // إذا انتهت اللعبة، إرسال النتائج
-            if (room.state.winner) {
-                setTimeout(() => {
-                    this.io.to(room.id).emit('gameCompleted', {
-                        winner: room.state.winner,
-                        isDraw: room.state.winner === 'draw',
-                        leaderboard: this.getLeaderboard()
-                    });
-                }, 2000);
-            }
-            
-        } catch (error) {
-            socket.emit('error', { message: error.message });
+        });
+    }
+    
+    executeMove(room, cellIndex, player) {
+        const symbol = room.players[player.id].symbol;
+        
+        // تنفيذ الحركة
+        room.state.board[cellIndex] = symbol;
+        room.state.moves++;
+        room.lastActivity = Date.now();
+        
+        // تبديل الدور
+        room.state.currentPlayer = room.state.currentPlayer === 'X' ? 'O' : 'X';
+        room.state.message = `دور ${room.state.currentPlayer}`;
+    }
+    
+    checkGameResult(room) {
+        const winner = this.calculateWinner(room.state.board);
+        
+        if (winner) {
+            room.state.winner = winner;
+            room.state.active = false;
+            room.state.draw = (winner === 'draw');
+            room.state.message = winner === 'draw' 
+                ? '🎉 تعادل!' 
+                : `🎊 فاز ${winner}!`;
+                
+            this.log(`🏆 إنتهت اللعبة في ${room.id}: ${room.state.message}`, 'info');
+            return winner;
         }
+        
+        return 'continue';
     }
-
-    // 🔧 الأدوات المساعدة
-    validatePlayerName(name) {
-        if (!name || typeof name !== 'string') return false;
-        if (name.length < 2 || name.length > 20) return false;
-        const validPattern = /^[\p{L}\p{N}\s_-]+$/u;
-        return validPattern.test(name);
-    }
-
-    isDuplicateName(name) {
-        for (let player of this.players.values()) {
-            if (player.name.toLowerCase() === name.toLowerCase()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    validateMove(room, player, cellIndex) {
-        if (!room.state.active) return false;
-        if (room.state.currentPlayer !== player.symbol) return false;
-        if (room.state.board[cellIndex] !== null) return false;
-        if (cellIndex < 0 || cellIndex > 8) return false;
-        return true;
-    }
-
-    checkWinner(board) {
-        const lines = [
-            [0, 1, 2], [3, 4, 5], [6, 7, 8], // صفوف
-            [0, 3, 6], [1, 4, 7], [2, 5, 8], // أعمدة
-            [0, 4, 8], [2, 4, 6]             // أقطار
-        ];
-
-        for (let line of lines) {
-            const [a, b, c] = line;
+    
+    calculateWinner(board) {
+        // التحقق من الفوز
+        for (const [a, b, c] of this.WINNING_LINES) {
             if (board[a] && board[a] === board[b] && board[a] === board[c]) {
                 return board[a];
             }
         }
-
+        
+        // التحقق من التعادل
         if (board.every(cell => cell !== null)) {
             return 'draw';
         }
-
+        
         return null;
     }
-
-    createRoom(player1, player2) {
-        const roomId = this.generateRoomId();
-        
-        const room = {
-            id: roomId,
-            players: [
-                { ...player1, symbol: 'X', ready: false },
-                { ...player2, symbol: 'O', ready: false }
-            ],
-            state: this.initializeGameState(),
-            createdAt: Date.now(),
-            lastActivity: Date.now()
-        };
-
-        this.rooms.set(roomId, room);
-
-        // انضمام اللاعبين للغرفة في Socket.IO
-        player1.socket.join(roomId);
-        player2.socket.join(roomId);
-
-        console.log(`🆕 غرفة جديدة: ${roomId} - ${player1.name} vs ${player2.name}`);
-        return room;
-    }
-
-    initializeGameState() {
-        return {
-            board: Array(9).fill(null),
-            currentPlayer: 'X',
-            winner: null,
-            isDraw: false,
-            active: true,
-            moves: 0,
-            message: 'اللاعب X يبدأ'
-        };
-    }
-
-    findPlayerRoom(playerId) {
-        for (let room of this.rooms.values()) {
-            if (room.players.some(player => player.id === playerId)) {
-                return room;
-            }
-        }
-        return null;
-    }
-
-    hasPendingInvite(senderId, targetId) {
-        for (let invite of this.playerInvites.values()) {
-            if (invite.senderId === senderId && 
-                invite.targetId === targetId && 
-                invite.status === 'pending') {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    cleanupPlayerInvites(playerId) {
-        for (let [inviteId, invite] of this.playerInvites) {
-            if (invite.senderId === playerId || invite.targetId === playerId) {
-                this.playerInvites.delete(inviteId);
-            }
-        }
-    }
-
-    updatePlayerStats(room, winner) {
-        // يمكن تطوير هذا لاحقاً لإضافة إحصائيات متقدمة
-        room.players.forEach(player => {
-            player.lastActivity = Date.now();
-        });
-    }
-
-    generateRoomId() {
-        return Math.random().toString(36).substring(2, 10).toUpperCase();
-    }
-
-    generateInviteId() {
-        return `inv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    }
-
-    getLeaderboard() {
-        // يمكن تطوير هذا لاحقاً
-        return [
-            { name: 'أحمد', wins: 5, losses: 2, draws: 1 },
-            { name: 'محمد', wins: 4, losses: 3, draws: 0 },
-            { name: 'فاطمة', wins: 3, losses: 1, draws: 2 }
-        ];
-    }
-
-    getServerStats() {
-        const uptime = Math.floor((Date.now() - this.gameStats.startTime) / 1000);
-        const hours = Math.floor(uptime / 3600);
-        const minutes = Math.floor((uptime % 3600) / 60);
-        const seconds = uptime % 60;
-        
-        return {
-            onlinePlayers: this.players.size,
-            activeRooms: this.rooms.size,
-            totalGames: this.gameStats.totalGames,
-            totalMoves: this.gameStats.totalMoves,
-            uptime: `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
-        };
-    }
-
-    // 🔄 معالجة الأحداث العامة
-    handleLobbyUpdate(socket) {
-        socket.emit('lobbyUpdated', {
-            players: this.getLobbyPlayers(),
-            serverStats: this.getServerStats()
-        });
-    }
-
-    handleGetLeaderboard(socket) {
-        socket.emit('leaderboardData', {
-            leaderboard: this.getLeaderboard()
-        });
-    }
-
-    getLobbyPlayers() {
-        return Array.from(this.lobbyPlayers)
-            .map(playerId => {
-                const player = this.players.get(playerId);
-                return player ? {
-                    id: player.id,
-                    name: player.name,
-                    status: player.status
-                } : null;
-            })
-            .filter(player => player !== null && player.status === 'available');
-    }
-
-    // 🚪 معالجة الانفصال
-    async handleDisconnect(socket, reason) {
-        console.log(`🚪 لاعب انقطع: ${socket.id} - ${reason}`);
-        
-        const player = this.players.get(socket.id);
-        if (player) {
-            // إذا كان في غرفة، معالجة مغادرته
-            const room = this.findPlayerRoom(socket.id);
-            if (room) {
-                this.handlePlayerLeaveRoom(room, socket.id);
-            }
-
-            // تنظيف البيانات
-            this.players.delete(socket.id);
-            this.lobbyPlayers.delete(socket.id);
-            this.cleanupPlayerInvites(socket.id);
-        }
-
-        this.broadcastLobbyUpdate();
-    }
-
-    handlePlayerLeaveRoom(room, playerId) {
-        const leavingPlayer = room.players.find(p => p.id === playerId);
-        room.players = room.players.filter(p => p.id !== playerId);
-        
-        if (room.players.length === 0) {
-            // لا يوجد لاعبين، حذف الغرفة
-            this.rooms.delete(room.id);
-        } else {
-            // إشعار اللاعب المتبقي
-            const remainingPlayer = room.players[0];
-            remainingPlayer.socket.emit('opponentLeft', {
-                message: `${leavingPlayer?.name || 'الخصم'} غادر الغرفة`,
-                roomClosed: false
-            });
-            
-            // إعادة اللاعب المتبقي للردهة
-            remainingPlayer.status = 'available';
-            this.lobbyPlayers.add(remainingPlayer.id);
-        }
-    }
-
-    // 📢 بث التحديثات
-    broadcastLobbyUpdate() {
-        const lobbyData = {
-            players: this.getLobbyPlayers(),
-            serverStats: this.getServerStats()
-        };
-        this.io.emit('lobbyUpdated', lobbyData);
-    }
-
-    // معالجات أخرى
-    handleRequestRestart(socket) {
-        const room = this.findPlayerRoom(socket.id);
-        if (room && !room.state.active) {
-            // إعادة تشغيل اللعبة
-            room.state = this.initializeGameState();
-            room.players.forEach(player => {
-                player.ready = false;
-                // تبديل الرموز
-                player.symbol = player.symbol === 'X' ? 'O' : 'X';
-            });
-            
-            this.io.to(room.id).emit('gameRestarted', {
-                state: room.state,
-                players: room.players
-            });
-        }
-    }
-
-    handlePlayerReady(socket) {
-        const room = this.findPlayerRoom(socket.id);
-        if (room) {
-            const player = room.players.find(p => p.id === socket.id);
-            if (player) {
-                player.ready = true;
+    
+    updatePlayerStats(room, result) {
+        Object.keys(room.players).forEach(playerId => {
+            const player = this.players.get(playerId);
+            if (player && player.stats) {
+                player.stats.games++;
                 
-                // إذا كان كلا اللاعبين جاهزين
-                if (room.players.every(p => p.ready)) {
-                    this.handleRequestRestart(socket);
+                const playerSymbol = room.players[playerId].symbol;
+                
+                if (result === 'draw') {
+                    player.stats.draws++;
+                } else if (result === playerSymbol) {
+                    player.stats.wins++;
+                } else {
+                    player.stats.losses++;
                 }
             }
-        }
+        });
     }
-
-    handleLeaveRoom(socket) {
-        const room = this.findPlayerRoom(socket.id);
-        if (room) {
-            this.handlePlayerLeaveRoom(room, socket.id);
+    
+    restartGame(roomId) {
+        const room = this.rooms.get(roomId);
+        if (!room) return;
+        
+        // إعادة تعيين حالة اللعبة
+        room.state.board.fill(null);
+        room.state.currentPlayer = 'X';
+        room.state.winner = null;
+        room.state.draw = false;
+        room.state.active = true;
+        room.state.moves = 0;
+        room.state.message = '🔄 إعادة التشغيل! دور X';
+        room.lastActivity = Date.now();
+        
+        // إعادة تعيين جاهزية اللاعبين
+        Object.keys(room.players).forEach(playerId => {
+            const player = this.players.get(playerId);
+            if (player) player.isReady = false;
+        });
+        
+        this.emitToRoom(roomId, 'gameRestarted', {
+            state: room.state
+        });
+        
+        this.log(`🔄 إعادة تشغيل اللعبة في ${roomId}`, 'info');
+    }
+    
+    // ========== إدارة اللاعبين والغرف ==========
+    
+    handlePlayerExit(playerId, roomId, reason) {
+        const room = this.rooms.get(roomId);
+        if (!room) return;
+        
+        const leavingPlayer = this.players.get(playerId);
+        const remainingPlayerId = Object.keys(room.players).find(id => id !== playerId);
+        
+        // إخطار اللاعب المتبقي
+        if (remainingPlayerId) {
+            const remainingPlayer = this.players.get(remainingPlayerId);
+            if (remainingPlayer) {
+                remainingPlayer.status = 'available';
+                remainingPlayer.roomId = null;
+                remainingPlayer.isReady = false;
+                
+                this.io.to(remainingPlayerId).emit('opponentLeft', {
+                    message: reason === 'disconnected' 
+                        ? 'انقطع اتصال الخصم'
+                        : 'غادر الخصم الغرفة',
+                    playerName: leavingPlayer?.name
+                });
+            }
         }
         
-        // إعادة اللاعب للردهة
-        const player = this.players.get(socket.id);
-        if (player) {
-            player.status = 'available';
-            this.lobbyPlayers.add(socket.id);
-            socket.emit('lobbyJoined', { 
-                playerName: player.name,
-                leaderboard: this.getLeaderboard(),
-                serverStats: this.getServerStats()
-            });
+        // تنظيف الغرفة
+        this.cleanupRoom(roomId);
+        
+        // تحديث حالة اللاعب المغادر
+        if (leavingPlayer) {
+            leavingPlayer.status = 'available';
+            leavingPlayer.roomId = null;
+            leavingPlayer.isReady = false;
         }
         
         this.broadcastLobbyUpdate();
+        this.broadcastServerStats();
+        
+        this.log(`🚪 ${leavingPlayer?.name || 'لاعب'} ${reason} الغرفة ${roomId}`, 'info');
     }
-
-    // 🚀 تشغيل السيرفر
-    start() {
-        const PORT = process.env.PORT || 3000;
-        const HOST = '0.0.0.0';
-
-        this.server.listen(PORT, HOST, () => {
-            console.log('🎮 خادم XO المحسن يعمل على PORT:', PORT);
-            console.log('🌐 العنوان:', `http://localhost:${PORT}`);
-            console.log('⏰ وقت البدء:', new Date().toLocaleString());
+    
+    cleanupRoom(roomId) {
+        const room = this.rooms.get(roomId);
+        if (!room) return;
+        
+        // حذف الغرفة إذا لم يتبقى لاعبين
+        const activePlayers = Object.keys(room.players).filter(playerId => 
+            this.players.has(playerId)
+        );
+        
+        if (activePlayers.length === 0) {
+            this.rooms.delete(roomId);
+            this.log(`🗑️ تم حذف الغرفة ${roomId}`, 'info');
+        }
+    }
+    
+    // ========== التحقق من الصحة والأمان ==========
+    
+    validateName(name) {
+        return name && name.length >= 2 && name.length <= this.MAX_NAME_LENGTH;
+    }
+    
+    isNameTaken(name, currentPlayerId) {
+        return Array.from(this.players.entries()).some(([id, player]) => 
+            id !== currentPlayerId && player.name.toLowerCase() === name.toLowerCase()
+        );
+    }
+    
+    validateInvite(inviter, target) {
+        return inviter && 
+               target && 
+               inviter.status === 'available' && 
+               target.status === 'available' &&
+               inviter.id !== target.id;
+    }
+    
+    validateInviteAcceptance(invite, acceptor, inviter) {
+        if (!invite || !acceptor || !inviter) return false;
+        if (invite.expiresAt && Date.now() > invite.expiresAt) return false;
+        
+        return acceptor.status === 'available' &&
+               inviter.status === 'awaiting_response' &&
+               invite.inviterId === inviter.id;
+    }
+    
+    validateMove(socket, room, cellIndex) {
+        // التحقق الأساسي
+        if (cellIndex < 0 || cellIndex > 8) return false;
+        if (!room.state.active || room.state.winner) return false;
+        
+        const player = room.players[socket.id];
+        if (!player) return false;
+        
+        // التحقق من الدور
+        if (player.symbol !== room.state.currentPlayer) return false;
+        
+        // التحقق من أن الخلية فارغة
+        if (room.state.board[cellIndex] !== null) return false;
+        
+        // التحقق من التبريد بين الحركات
+        const playerData = this.players.get(socket.id);
+        const timeSinceLastMove = Date.now() - playerData.lastMoveTime;
+        if (timeSinceLastMove < this.MOVE_COOLDOWN) return false;
+        
+        return true;
+    }
+    
+    // ========== دوال مساعدة ==========
+    
+    sanitizeName(name) {
+        if (typeof name !== 'string') return '';
+        return name.trim()
+            .substring(0, this.MAX_NAME_LENGTH)
+            .replace(/[^\w\u0600-\u06FF\s\-_.]/g, '')
+            .replace(/\s+/g, ' ');
+    }
+    
+    getPublicRoomData(room) {
+        return {
+            id: room.id,
+            players: Object.values(room.players),
+            state: room.state
+        };
+    }
+    
+    getOpponentData(room, playerId) {
+        const opponentId = Object.keys(room.players).find(id => id !== playerId);
+        return room.players[opponentId];
+    }
+    
+    getLeaderboardData() {
+        return Array.from(this.players.values())
+            .filter(player => player.stats && player.stats.games > 0)
+            .map(player => ({
+                name: player.name,
+                wins: player.stats.wins || 0,
+                losses: player.stats.losses || 0,
+                draws: player.stats.draws || 0,
+                totalGames: player.stats.games || 0
+            }))
+            .sort((a, b) => b.wins - a.wins)
+            .slice(0, 10);
+    }
+    
+    sendLeaderboard(socket) {
+        socket.emit('leaderboardData', {
+            leaderboard: this.getLeaderboardData()
         });
+    }
+    
+    // ========== البث والتواصل ==========
+    
+    broadcastLobbyUpdate() {
+        const lobbyData = Array.from(this.players.values()).map(player => ({
+            id: player.id,
+            name: player.name,
+            status: player.status
+        }));
+        
+        this.io.emit('lobbyUpdated', { players: lobbyData });
+    }
+    
+    broadcastServerStats() {
+        this.io.emit('serverStats', {
+            onlinePlayers: this.gameStats.onlinePlayers,
+            activeRooms: this.rooms.size,
+            totalGames: this.gameStats.totalGames
+        });
+    }
+    
+    emitToPlayer(playerId, event, data) {
+        this.io.to(playerId).emit(event, data);
+    }
+    
+    emitToRoom(roomId, event, data) {
+        this.io.to(roomId).emit(event, data);
+    }
+    
+    // ========== التنظيف الدوري ==========
+    
+    startCleanupIntervals() {
+        // تنظيف الدعوات المنتهية كل 30 ثانية
+        setInterval(() => this.cleanupExpiredInvites(), 30000);
+        
+        // تنظيف الغرف الخاملة كل دقيقة
+        setInterval(() => this.cleanupInactiveRooms(), 60000);
+        
+        // تنظيف اللاعبين المتوقفين كل 5 دقائق
+        setInterval(() => this.cleanupInactivePlayers(), 300000);
+        
+        // بث الإحصائيات كل 30 ثانية
+        setInterval(() => this.broadcastServerStats(), 30000);
+    }
+    
+    cleanupExpiredInvites() {
+        const now = Date.now();
+        for (const [targetId, invite] of this.pendingInvites.entries()) {
+            if (now > invite.expiresAt) {
+                const inviter = this.players.get(invite.inviterId);
+                if (inviter && inviter.status === 'awaiting_response') {
+                    inviter.status = 'available';
+                }
+                this.pendingInvites.delete(targetId);
+                this.log(`⏰ انتهت صلاحية دعوة لـ ${targetId}`, 'debug');
+            }
+        }
+    }
+    
+    cleanupInactiveRooms() {
+        const now = Date.now();
+        for (const [roomId, room] of this.rooms.entries()) {
+            // حذف الغرف الخاملة لمدة 10 دقائق
+            if (now - room.lastActivity > this.MAX_ROOM_AGE) {
+                this.rooms.delete(roomId);
+                this.log(`🧹 تنظيف غرفة خاملة: ${roomId}`, 'debug');
+            }
+        }
+    }
+    
+    cleanupInactivePlayers() {
+        // يمكن إضافة تنظيف للاعبين المتوقفين إذا لزم الأمر
+        this.log(`👥 تنظيف الذاكرة - اللاعبون: ${this.players.size}, الغرف: ${this.rooms.size}`, 'debug');
+    }
+    
+    // ========== التسجيل والمراقبة ==========
+    
+    log(message, level = 'info') {
+        const timestamp = new Date().toISOString();
+        const logMessage = `[${timestamp}] [${level.toUpperCase()}] ${message}`;
+        
+        console.log(logMessage);
+        
+        // في الإنتاج، يمكن إضافة كتابة في ملف
+        if (this.NODE_ENV === 'production') {
+            // يمكن إضافة كتابة في ملف log هنا
+        }
+    }
+    
+    // ========== تشغيل الخادم ==========
+    
+    start() {
+        this.server.listen(this.PORT, '0.0.0.0', () => {
+            this.log(`🚀 خادم XO المحسن يعمل على PORT: ${this.PORT}`, 'info');
+            this.log(`🌐 الوضع: ${this.NODE_ENV}`, 'info');
+            this.log(`🔗 العنوان: ${this.CLIENT_URL}`, 'info');
+            
+            if (this.NODE_ENV === 'production') {
+                this.log('🛡️  وضع الإنتاج مفعل - الأمان مشدد', 'info');
+            }
+        });
+        
+        // معالجة إغلاق الخادم بشكل أنيق
+        process.on('SIGTERM', () => this.shutdown());
+        process.on('SIGINT', () => this.shutdown());
+    }
+    
+    shutdown() {
+        this.log('🛑 إغلاق الخادم...', 'info');
+        
+        // إخطار جميع العملاء
+        this.io.emit('serverShutdown', { message: 'يتم إغلاق الخادم للصيانة' });
+        
+        // إعطاء وقت للإغلاق
+        setTimeout(() => {
+            process.exit(0);
+        }, 5000);
     }
 }
 
-// تشغيل السيرفر
+// تشغيل الخادم
 const gameServer = new XOGameServer();
 gameServer.start();
+
+module.exports = XOGameServer;

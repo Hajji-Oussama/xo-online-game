@@ -1,28 +1,40 @@
 {
   "name": "xo-online-game",
   "version": "2.0.0",
-  "description": "لعبة XO أونلاين متعددة اللاعبين - تصميم حديث ومتجاوب",
+  "description": "لعبة XO أونلاين متعددة اللاعبين - نسخة محسنة وآمنة",
   "main": "server.js",
+  "type": "commonjs",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js",
-    "production": "NODE_ENV=production node server.js"
-  },
-  "dependencies": {
-    "express": "^4.18.2",
-    "socket.io": "^4.7.2"
+    "dev": "nodemon server.js",
+    "production": "NODE_ENV=production node server.js",
+    "test": "echo \"No tests specified\" && exit 0"
   },
   "keywords": [
     "game",
-    "multiplayer",
     "xo",
     "tic-tac-toe",
-    "realtime",
-    "socket.io"
+    "multiplayer",
+    "socket.io",
+    "online",
+    "arabic",
+    "realtime"
   ],
   "author": "XO Game Team",
   "license": "MIT",
+  "dependencies": {
+    "compression": "^1.8.1",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.5.1",
+    "helmet": "^7.2.0",
+    "socket.io": "^4.7.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
   "engines": {
-    "node": ">=16.0.0"
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
   }
 }
